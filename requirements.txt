@@ -1,0 +1,11 @@
+arch
+vectorbt
+hmmlearn
+dtw-python
+numpy
+pandas
+matplotlib
+seaborn
+scipy
+scikit-learn
+statsmodel
