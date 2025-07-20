@@ -1,0 +1,98 @@
+# Volatility & Indicator Parameters
+volatility:
+  yz_window_length: 30 # Yang-Zhen window length for true volatility
+  params:
+    p: 1
+    q: 1
+    o: 1
+    power: 2
+    dist: "StudentsT"
+indicators:
+  num_indicators: 30 # Number of Technical Indicators/Strategies/Base Alphas
+  num_binary_operators: 4 # When changing this, update Tree Signal function
+  num_operators: 6 # When changing this, update Tree Signal function
+
+# Evolutionary Algorithm Parameters
+evolutionary_algorithm:
+  crossover_mutation_params:
+    beta1: 0.85
+    beta2: 0.93
+    eta: 0.001
+  population:
+    num_individuals: 150
+    num_elite: 15 # Calculated as 0.1 * num_individuals
+    frac_elite: 0.05
+  similarity:
+    sim_threshold: 0.8
+  rate_limits:
+    crossover:
+      min: 0.4
+      max: 0.9
+    mutation:
+      min: 0.1
+      max: 0.3
+
+# Backtest Parameters
+backtest:
+  asset_label: "SP500"
+  initial_cash: 10000
+  stop_loss_percent: 0.05
+  take_profit_percent: 0.03
+  order_size: 5
+  order_size_type: "percent"
+  slippage: 0.001
+  fees: 0.001
+  frequency: "1D" # e.g., '1D', '1H', '1M'
+  signal_threshold: 1.0
+
+# Integration & Optimization Parameters
+integration:
+  ini_warm_factor: 2
+  num_generations: 30
+  stopping_generation: 6
+  stop_threshold: 0.01
+  crossover_rates:
+    initial_prev_cross: 0.5
+    initial_prev_cross_momentum: 0.001
+    initial_current_cross: 0.6
+    initial_prev_cross_velocity: 0.001
+  mutation_rates:
+    initial_prev_mut: 0.15
+    initial_prev_mut_momentum: 0.001
+    initial_current_mut: 0.2
+    initial_prev_mut_velocity: 0.001
+  num_depth: 3
+
+# Final Execution Parameters
+execution:
+  data_window:
+    train_start_idx: 0
+    train_end_idx: 1000
+    test_start_idx: 1000
+    test_end_idx: 1500
+    sliding_window_days: 150
+    fixed_train_length: 1000 # Calculated as train_end_idx - train_start_idx
+    fixed_test_length: 500 # Calculated as test_end_idx - test_start_idx
+  warmstart:
+    warmstart_percent: 0.9
+    current_warmstart_percent: 0.9 # This will be set based on is_consecutive_warmstart
+    num_regimes: 2
+    vanilla_window: 100
+    dataset_iteration: 0 # Denotes the sub-dataset being used
+  result_tracking:
+    avg_sharpe_dict_initial: {} # Initial empty dict, will be populated by code
+    avg_test_result_initial: 0.0 # Initial value
+    dict_low_initial: {} # Initial empty dict
+    dict_high_initial: {} # Initial empty dict
+  start_column_index: 5
+
+# Ablation & Feature Flags
+ablation:
+  is_simulated_annealing: false
+  exp_delta_p: {} # Will be populated by code
+  price_delta_p: {} # Will be populated by code
+  is_consecutive_warmstart: true # False: Adaptive rates will be used
+  fixed_rates:
+    is_fixed_rate: true # False: Adaptive rates will be used
+    fixed_crossover_rate: 0.00000001 # 1e-8
+    fixed_mutation_rate: 0.00000001 # 1e-8
