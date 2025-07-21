@@ -1,3 +1,6 @@
+basicfeed:
+  SEED: 42 # Random seed for reproducability
+  filepath: r"C:\Users\Md Kaif Faiyaz\Downloads\Alpha-Mining-GP\DatasetsFolder\zscored_indicators_spy.csv"
 # Volatility & Indicator Parameters
 volatility:
   yz_window_length: 30 # Yang-Zhen window length for true volatility
@@ -20,7 +23,7 @@ evolutionary_algorithm:
     eta: 0.001
   population:
     num_individuals: 150
-    num_elite: 15 # Calculated as 0.1 * num_individuals
+    perc_elite: 0.1 # Calculated as 0.1 * num_individuals
     frac_elite: 0.05
   similarity:
     sim_threshold: 0.8
@@ -84,7 +87,7 @@ execution:
     avg_test_result_initial: 0.0 # Initial value
     dict_low_initial: {} # Initial empty dict
     dict_high_initial: {} # Initial empty dict
-  start_column_index: 5
+  start_col: 5
 
 # Ablation & Feature Flags
 ablation:
