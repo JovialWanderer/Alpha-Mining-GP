@@ -90,17 +90,26 @@ def add_depth_binary(base_pop: list[TreeNode], n: int, rng: np.random.Generator)
 
 def add_depth_unary(base_pop: list[TreeNode], n: int, rng: np.random.Generator) -> list[TreeNode]:
     """
-    Creates n new trees by applying a random unary operator to trees 
-    from the base population.
-    """
+    Creates n new trees by applying a random unary operator to trees from the base population."""
     if not base_pop:
         return []
 
-    chosen_indices = rng.choice(len(base_pop), size=n, replace=True) # Allow choosing the same tree multiple times
-    
+    population_size = len(base_pop)
+
+    if n <= population_size:
+        chosen_indices = rng.choice(population_size, size=n, replace=False)
+    else:
+        all_unique_indices = np.arange(population_size)
+        rng.shuffle(all_unique_indices)
+        remaining_needed = n - population_size
+        
+        #Sample remainder with replacement from full population.
+        remaining_indices = rng.choice(population_size, size=remaining_needed, replace=True)
+        chosen_indices = np.concatenate([all_unique_indices, remaining_indices])
+
     base_pop_new = []
-    num_binary_ops = config['indicators']['operators']['num_binary_operators']
-    num_total_ops = config['indicators']['num_operators']
+    num_binary_ops = config['operators']['num_binary_operators']
+    num_total_ops = config['operators']['num_operators']
 
     for i in chosen_indices:
         root = TreeNode()
@@ -110,3 +119,18 @@ def add_depth_unary(base_pop: list[TreeNode], n: int, rng: np.random.Generator) 
         base_pop_new.append(new_tree)
         
     return base_pop_new
+
+def check_same(tree1:TreeNode, tree2:TreeNode) -> bool:
+    """ Checks if two trees are structurally the same"""
+    if tree1 is None and tree2 is None:
+        return True
+    if (tree1 is None or tree2 is None) or (tree1.val != tree2.val):
+        return False
+
+    # Check for commutative operators
+    if tree1.val in [0,2,3,4]:  # Assuming 0 = +, 2 = *,3=max,4=min
+        return ((check_same(tree1.left, tree2.left) and check_same(tree1.right, tree2.right)) or
+                (check_same(tree1.left, tree2.right) and check_same(tree1.right, tree2.left)))
+
+    # All other operators compared normally
+    return check_same(tree1.left, tree2.left) and check_same(tree1.right, tree2.right)
