@@ -32,7 +32,7 @@ indicators:
 evolutionary_algorithm:
   crossover_mutation_params:
     beta1: 0.85
-    beta2: 0.93
+    beta2: 0.94
     eta: 0.001
   population:
     num_individuals: 150
