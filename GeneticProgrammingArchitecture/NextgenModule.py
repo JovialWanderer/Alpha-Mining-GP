@@ -1,4 +1,15 @@
 from dataclasses import dataclass
+from hyperparam import *
+from SimilarityScore import *
+from StrategyTree.TreeStruct import TreeNode
+from StrategyTree.TreeSignalCalc import tree_signal
+from BacktestFolder.backtest import VectorBacktest
+from GPUtils import GeneticOperators
+import numpy as np
+import random
+import numpy as np
+import pandas as pd
+from typing import List, Tuple
 import copy
 @dataclass
 class OptimizerState:
@@ -15,16 +26,8 @@ class OptimizerState:
     beta2: float
     eta: float
     dataset_iteration: int = 0
-from hyperparam import *
-from SimilarityScore import *
-from StrategyTree.TreeStruct import TreeNode
-from StrategyTree.TreeSignalCalc import tree_signal
-from BacktestFolder.backtest import VectorBacktest
-import numpy as np
-import random
-import numpy as np
-import pandas as pd
-from typing import List, Tuple
+
+
 
 class GenerationEvolver:
     """
@@ -33,7 +36,7 @@ class GenerationEvolver:
     This class encapsulates fitness calculation, diversity management, elitism,
     crossover, mutation, and adaptive rate updates.
     """
-    def __init__(self, config: dict, rng: np.random.Generator, ga_ops: 'GeneticOperators'):
+    def __init__(self, config: dict, rng: np.random.Generator, ga_ops: GeneticOperators):
         """
         Initializes the GenerationEvolver.
 
@@ -71,40 +74,120 @@ class GenerationEvolver:
         
         pnl_array = backtest.get_portfolio().value().to_numpy().T
         return raw_fitness, pnl_array
+    
+    @staticmethod
+    def _calculate_elite_mean_fitness(fitness_array: np.ndarray) -> float:
+        """Calculates the mean fitness of the top elite_perc percent of individuals."""
+        if fitness_array.size == 0:
+            return 0.0
+        try:
+            fit_values = np.array([t[0] if isinstance(t, tuple) else t for t in fitness_array], dtype=float)
+            #Handles potential NaNs or Infs introduced
+            fit_values = fit_values[np.isfinite(fit_values)]
+            if fit_values.size == 0:
+                return 0.0
+        except (TypeError, ValueError) as e:
+            warnings.warn(f"Could not process fitness array: {fitness_array}. Error: {e}. Returning 0.0")
+            return 0.0
+        elite_perc = np.clip(config['evolutionary_algorithm']['population']['perc_elite'], 0.0, 100.0)
+        if elite_perc == 0.0:
+            return 0.0
+        
+        num_elite = max(1, int(np.floor(len(fitness_array) * elite_perc)))
+        
+        #Sort descending and take the mean of the top elite
+        sorted_fitness = np.sort(fit_values)[::-1]
+        return np.mean(sorted_fitness[:num_elite])
+    
+    def _update_adaptive_rates(
+        self, optimizer_state: OptimizerState, curr_gen: int, 
+        prev_fitness: np.ndarray, curr_fitness: np.ndarray
+    ) -> OptimizerState:
+        """
+        Orchestrates the update of both crossover and mutation rates using Adam logic.
+        This replaces the old `update_rates` function.
+        """
+        # Create a mutable copy to update
+        new_state = copy.deepcopy(optimizer_state)
+        
+        cross_bounds = (config['evolutionary_algorithm']['crossover']['min'], config['evolutionary_algorithm']['crossover']['max'])
+        next_cross_rate, mom_cross, vel_cross = self._adam_controller(
+            prev_rate=new_state.prev_cross_rate, curr_rate=new_state.curr_cross_rate,
+            prev_momentum=new_state.prev_cross_mom, prev_velocity=new_state.prev_cross_vel,
+            prev_fitness_arr=prev_fitness, curr_fitness_arr=curr_fitness,
+            rate_bounds=cross_bounds, curr_gen=curr_gen
+        )
+        new_state.prev_cross_rate, new_state.curr_cross_rate = new_state.curr_cross_rate, next_cross_rate
+        new_state.prev_cross_mom, new_state.prev_cross_vel = mom_cross, vel_cross
+
+        mut_bounds = (config['evolutionary_algorithm']['mutation']['min'], config['evolutionary_algorithm']['mutation']['max'])
+        next_mut_rate, mom_mut, vel_mut = self._adam_controller(
+            prev_rate=new_state.prev_mut_rate, curr_rate=new_state.curr_mut_rate,
+            prev_momentum=new_state.prev_mut_mom, prev_velocity=new_state.prev_mut_vel,
+            prev_fitness_arr=prev_fitness, curr_fitness_arr=curr_fitness,
+            rate_bounds=mut_bounds, curr_gen=curr_gen
+        )
+        new_state.prev_mut_rate, new_state.curr_mut_rate = new_state.curr_mut_rate, next_mut_rate
+        new_state.prev_mut_mom, new_state.prev_mut_vel = mom_mut, vel_mut
+        
+        return new_state
+
+    def _adam_controller(
+        self, prev_rate: float, curr_rate: float, prev_momentum: float, prev_velocity: float,
+        prev_fitness_arr: np.ndarray, curr_fitness_arr: np.ndarray,
+        rate_bounds: Tuple[float, float], curr_gen: int, epsilon: float = 1e-8
+    ) -> Tuple[float, float, float]:
+        """
+        Dynamically adjusts a single GA operator rate using an Adam-like optimizer.
+        This is the core logic from the old `adam_rate_controller` function.
+        """
+        #Calculate change in elite fitness
+        prev_top_mean = self._calculate_elite_mean_fitness(prev_fitness_arr)
+        curr_top_mean = self._calculate_elite_mean_fitness(curr_fitness_arr)
+        delta_fitness = curr_top_mean - prev_top_mean
+        delta_rate = curr_rate - prev_rate
+        robust_delta_rate = np.sign(delta_rate) * max(abs(delta_rate), epsilon)
+
+        #Estimate the gradient
+        gradient = delta_fitness / robust_delta_rate
+
+        #Update Momentum and Velocity
+        beta1 = config['evolutionary_algorithm']['crossover_mutation_params']['beta1']
+        beta2 = config['evolutionary_algorithm']['crossover_mutation_params']['beta2']
+        
+        curr_momentum = beta1 * prev_momentum + (1 - beta1) * gradient
+        curr_velocity = beta2 * prev_velocity + (1 - beta2) * (gradient ** 2)
+        
+        #Apply bias correction
+        momentum_hat = curr_momentum / (1 - beta1 ** (curr_gen))
+        velocity_hat = curr_velocity / (1 - beta2 ** (curr_gen))
+
+        #Update using Adam rule
+        eta = config['evolutionary_algorithm']['crossover_mutation_params']['eta']
+        next_rate = curr_rate + eta * momentum_hat / (np.sqrt(velocity_hat) + epsilon)
+
+        #Clip the rate to bounds
+        return np.clip(next_rate, rate_bounds[0], rate_bounds[1]), curr_momentum, curr_velocity
 
     def _suppress_fitness_by_similarity(
         self, pnl_array: np.ndarray, fitness_array: np.ndarray, curr_gen: int, tot_gen: int
     ) -> np.ndarray:
         """Applies a diversity penalty to fitness scores based on PnL similarity."""
-        # This check is from your original code, it seems to disable the penalty in later generations
         if self.is_simulated_annealing:
             multiplicative_factor = np.exp(-curr_gen / tot_gen)
-            if multiplicative_factor <= 1.0 / (1.0 + 1): # Heuristic check
-                return fitness_array
 
-        similarity_matrix = calculate_similarity_matrix_np(pnl_array)
-        _, counts = analyze_similarity(similarity_matrix)
-        
-        penalized_fitness = np.array([
-            fit / (1.0 + counts[i]) for i, fit in enumerate(fitness_array)
-        ])
+            similarity_matrix = calculate_similarity_matrix_np(pnl_array)
+            _, counts = analyze_similarity(similarity_matrix)
+            penalized_fitness = np.array([
+                (fit / ((1.0 + counts[index]) * multiplicative_factor)
+                 if ((1 + counts[index]) * multiplicative_factor) > 1
+                 else fit,
+                 index)
+                 for _, (fit, index) in enumerate(fitness_array)])
+
+        else:
+            penalized_fitness=fitness_array
         return penalized_fitness
-
-    def _update_adaptive_rates(
-        self, optimizer_state: OptimizerState, curr_gen: int, prev_fitness: np.ndarray, curr_fitness: np.ndarray
-    ) -> OptimizerState:
-        """Updates crossover and mutation rates using the ADAM optimizer logic."""
-        # Create a mutable copy to update
-        new_state = copy.deepcopy(optimizer_state)
-
-        # Update Crossover Rate
-        # ... (Assuming adam_rate_controller is a function you have defined)
-        # new_state.curr_cross_rate, new_state.prev_cross_mom, new_state.prev_cross_vel = adam_rate_controller(...)
-        
-        # Update Mutation Rate
-        # new_state.curr_mut_rate, new_state.prev_mut_mom, new_state.prev_mut_vel = adam_rate_controller(...)
-        
-        return new_state
 
     def evolve(
         self,
@@ -122,17 +205,16 @@ class GenerationEvolver:
         """
         pop_size = len(current_pop)
         
-        # --- 1. Elitism: Preserve the best individuals ---
+        #Elitism: Preserve the best individuals
         sorted_indices = sorted(range(pop_size), key=lambda i: fitness_arr_with_indices[i][0], reverse=True)
         elite_indices = sorted_indices[:self.num_elite]
         next_gen_pop = [current_pop[i] for i in elite_indices]
         
-        # --- 2. Crossover: Create the rest of the new generation ---
+        #Crossover: Create the rest of the new generation
         num_children_needed = pop_size - self.num_elite
         fitness_scores_only = np.array([f[0] for f in fitness_arr_with_indices])
         
         for _ in range(num_children_needed // 2):
-            # Select parents using tournament selection from the GeneticOperators class
             id1 = self.ga_ops.selection(fitness_scores_only, k=3)
             id2 = self.ga_ops.selection(fitness_scores_only, k=3)
             while id1 == id2:
@@ -147,27 +229,27 @@ class GenerationEvolver:
             else:
                 next_gen_pop.extend([copy.deepcopy(parent1), copy.deepcopy(parent2)])
 
-        # --- 3. Mutation ---
+        #Mutation
         num_mutations = int(len(next_gen_pop) * optimizer_state.curr_mut_rate)
         if num_mutations > 0:
             indices_to_mutate = self.rng.choice(len(next_gen_pop), size=num_mutations, replace=False)
             for i in indices_to_mutate:
-                # Perform mutation using the GeneticOperators class
                 self.ga_ops.mutation(next_gen_pop[i])
 
-        # --- 4. Evaluate the new generation ---
+        #Evaluate the new generation
         new_raw_fitness, new_pnl_array = self._calculate_fitness(next_gen_pop, dataset, base_signals)
-        
-        # Apply diversity penalty
         new_penalized_fitness = self._suppress_fitness_by_similarity(new_pnl_array, new_raw_fitness, curr_gen, tot_gen)
         
         new_fitness_with_indices = list(zip(new_penalized_fitness, range(len(next_gen_pop))))
         
-        # --- 5. Update adaptive rates and return ---
+        #Update adaptive rates and return
         if not self.is_fixed_rate:
             # Assuming you have an unpenalized version of the previous fitness array
-            # optimizer_state = self._update_adaptive_rates(...)
-            pass
+            optimizer_state = self._update_adaptive_rates(
+                optimizer_state, curr_gen, 
+                np.array([f[0] for f in fitness_arr_with_indices]), 
+                np.array([f[0] for f in new_fitness_with_indices])
+            )
 
         avg_new_fitness = np.mean(sorted(new_penalized_fitness, reverse=True)[:self.num_elite])
 

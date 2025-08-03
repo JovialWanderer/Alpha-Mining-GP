@@ -104,7 +104,7 @@ execution:
 
 # Ablation & Feature Flags
 ablation:
-  is_simulated_annealing: false
+  is_simulated_annealing: true
   exp_delta_p: {} # Will be populated by code
   price_delta_p: {} # Will be populated by code
   is_consecutive_warmstart: true # False: Adaptive rates will be used
