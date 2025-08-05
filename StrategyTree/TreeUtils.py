@@ -2,6 +2,7 @@ from collections import deque
 import itertools
 from hyperparam import *
 from TreeStruct import *
+from TreeSignalCalc import tree_signal
 
 def get_height(root: TreeNode) -> int:
     """Gets the height of the tree recursively."""
@@ -134,3 +135,20 @@ def check_same(tree1:TreeNode, tree2:TreeNode) -> bool:
 
     # All other operators compared normally
     return check_same(tree1.left, tree2.left) and check_same(tree1.right, tree2.right)
+
+def test_signal_generator(optim_tree,base_signals):
+    final_signal=np.array([tree_signal(base_signals,optim_tree)][0])
+    # Apply thresholding to classify signals
+    final_signal = np.where(final_signal >config['backtest']['signal_threshold'], 1, np.where(final_signal < -config['backtest']['signal_threshold'], -1, 0))
+    return final_signal
+
+
+def dataset_preprocess(df,indicator_cols,start_idx,end_idx,isfirst=False,istest=False):
+    if istest:
+       base_signals = df[indicator_cols].values.T
+       return base_signals
+    base_signals=(df[indicator_cols][start_idx:end_idx].values.T)
+    if isfirst:
+        base_trees = [TreeNode(i) for i in range(len(indicator_cols))]
+        return base_trees,base_signals
+    return base_signals
