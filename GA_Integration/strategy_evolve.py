@@ -21,18 +21,22 @@ class StrategyEvolver:
         self.num_depth = config['training']['num_depth']
         self.ga_params = config['ga']
         self.adam_params = config['adam']
-        
-        # Trackers are now instance attributes, not globals
-        self.tree_tracker_high: Dict[int, List[TreeNode]] = {}
-        self.tree_tracker_low: Dict[int, List[TreeNode]] = {}
-        self.count_tracker_high: Dict[int, List[int]] = {}
-        self.count_tracker_low: Dict[int, List[int]] = {}
 
     def _get_initial_optimizer_state(self) -> OptimizerState:
         """Creates the initial state for the optimizer from the config."""
         return OptimizerState(
-            prev_cross_rate=self.ga_params['ini_prev_cross'], # ... and so on for all params
-            # ... (fill in the rest of the optimizer state parameters from config)
+            prev_cross_rate=config['integration']['crossover_rates']['initial_prev_cross'],
+            curr_cross_rate=config['integration']['crossover_rates']['initial_current_cross'],
+            prev_cross_mom=config['integration']['crossover_rates']['initial_prev_cross_momentum'],
+            prev_cross_vel= config['integration']['crossover_rates']['initial_prev_cross_velocity'],
+            prev_mut_rate=config['integration']['mutation_rates']['initial_prev_mut'],
+            curr_mut_rate=config['integration']['mutation_rates']['initial_current_mut'],
+            prev_mut_mom=config['integration']['mutation_rates']['initial_prev_mut_momentum'],
+            prev_mut_vel=config['integration']['mutation_rates']['initial_prev_mut_velocity'],
+            beta1=config['evolutionary_algorithm']['crossover_mutation_params']['beta1'],
+            beta2=config['evolutionary_algorithm']['crossover_mutation_params']['beta2'],
+            eta=config['evolutionary_algorithm']['crossover_mutation_params']['eta'],
+            dataset_iteration=0
         )
 
     def _evaluate_population(
@@ -45,9 +49,9 @@ class StrategyEvolver:
         # 1. Generate signals for the entire population
         signals_to_test = []
         for tree in population:
-            signal = tree_signal(base_signals, tree) # Assumes tree_signal is available
-            final_signal = np.where(signal > self.config['execution']['signal_threshold'], 1,
-                                    np.where(signal < -self.config['execution']['signal_threshold'], -1, 0))
+            signal = tree_signal(base_signals, tree)
+            final_signal = np.where(signal > config['backtest']['signal_threshold'], 1,
+                                    np.where(signal < -self.config['backtest']['signal_threshold'], -1, 0))
             signals_to_test.append(final_signal)
         
         # 2. Run backtest
@@ -56,7 +60,7 @@ class StrategyEvolver:
         
         # 3. Calculate raw fitness and PnL arrays
         raw_fitness = np.array(backtest.fitness(metric="sharpe"))
-        pnl_array = metrics.value().to_numpy().T
+        pnl_array = [metrics.value()[col].values for col in metrics.value().columns]
 
         # 4. Apply diversity penalty
         # Assuming these are available utility functions
@@ -64,10 +68,9 @@ class StrategyEvolver:
         _, counts = analyze_similarity(similarity_matrix)
         
         penalized_fitness = np.array([
-            fit / (1.0 + counts[i]) for i, fit in enumerate(raw_fitness)
-        ])
-        
-        return penalized_fitness, pnl_array
+            (fit / (1.0 + counts[i]),i) for i, fit in enumerate(raw_fitness)
+        ])        
+        return penalized_fitness
 
     def _run_evolution_loop(
         self, initial_pop: List[TreeNode], dataset_chunks: list, signal_chunks: list, 
@@ -77,41 +80,48 @@ class StrategyEvolver:
         current_pop = initial_pop
         
         # Initial fitness evaluation for the starting population
-        fitness_arr, pnl_arr = self._evaluate_population(current_pop, dataset_chunks[0], signal_chunks[0])
+        fitness_arr= self._evaluate_population(current_pop, dataset_chunks[0], signal_chunks[0])
 
         best_fitness = -np.inf
         best_strategy_pop = current_pop
-        
         # Get top 10% for early stopping comparison
-        num_elite = self.config['ga']['num_elite']
-        sorted_fitness = np.sort(fitness_arr)[::-1]
-        prev_avg_fit = np.mean(sorted_fitness[:num_elite])
+        sorted_fitness = sorted(fitness_arr, key=lambda x: x[0], reverse=True)
+        prev_avg_fit = np.mean([x[0] for x in sorted_fitness[:num_elite]])
         
-        stop_counter = 0
+        stop_counter = 1
         
         # Distributed Evolution Loop
         total_len = sum(len(d) for d in dataset_chunks)
-        num_generations = self.config['ga']['num_generations']
+        num_generations = config['integration']['num_generations']
         
         for j, (data_chunk, signal_chunk) in enumerate(zip(dataset_chunks, signal_chunks)):
             gens_for_chunk = max(1, (num_generations * len(data_chunk)) // total_len)
             
             for gen in range(gens_for_chunk):
-                # This function contains your core GA logic (selection, crossover, mutation)
+                simulated_next_gen=GenerationEvolver(
+                    config=config,
+                    rng=self.rng,
+                    ga_ops=GeneticOperators(self.rng),
+                )
                 current_pop, next_avg_fit, fitness_arr, pnl_arr, optimizer_state = \
-                    simulated_next_generation(
-                        signal_chunk, current_pop, data_chunk, gen, gens_for_chunk,
-                        fitness_arr, depth, is_high, **optimizer_state.__dict__
-                    )
+                    simulated_next_gen.evolve(
+                    current_pop=current_pop,
+                    fitness_arr_with_indices=fitness_arr,
+                    dataset=data_chunk,
+                    base_signals=signal_chunk,
+                    curr_gen=gen+1,
+                    tot_gen=gens_for_chunk+1,
+                    **optimizer_state.__dict__
+                )
 
                 if next_avg_fit > best_fitness:
                     best_fitness = next_avg_fit
                     best_strategy_pop = current_pop.copy()
 
                 # Early stopping logic
-                if abs(next_avg_fit - prev_avg_fit) <= self.config['training']['stop_threshold']:
+                if abs(next_avg_fit - prev_avg_fit) <= config['integration']['stop_threshold']:
                     stop_counter += 1
-                    if stop_counter > self.config['training']['stopping_generation']:
+                    if stop_counter > config['integration']['stopping_generation']:
                         return best_strategy_pop, best_fitness, optimizer_state
                 else:
                     stop_counter = 1
@@ -130,13 +140,6 @@ class StrategyEvolver:
 
         for d in range(2, self.num_depth + 1):
             warm_pop = self.warmstarter.begin(strategy_population)
-            
-            # Update trackers
-            tracker = self.count_tracker_high if is_high else self.count_tracker_low
-            tree_dict = self.tree_tracker_high if is_high else self.tree_tracker_low
-            tree_dict[d] = warm_pop
-            if d not in tracker: tracker[d] = []
-            tracker[d].append(len(warm_pop))
 
             # Run the main evolution loop
             best_pop, best_fit, final_state = self._run_evolution_loop(
@@ -150,7 +153,6 @@ class StrategyEvolver:
             }
             strategy_population = best_pop  # The best from this depth becomes the base for the next
             print(f"##*****************DEPTH {d} has BEST_FITNESS of {best_fit}***********************##")
-        
         return depth_results
 
     # The 'run_advanced_evolution' method would be structured similarly,

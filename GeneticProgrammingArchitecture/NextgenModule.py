@@ -57,7 +57,7 @@ class GenerationEvolver:
         self.signal_threshold = config['backtest']['signal_threshold']
 
     def _calculate_fitness(
-        self, population: List[TreeNode], dataset: pd.DataFrame, base_signals: list
+        self, population: List[TreeNode], dataset: pd.DataFrame, base_signals: list,return_pnl: bool = False
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Calculates raw fitness and PnL arrays for a population."""
         signals_to_test = []
@@ -71,9 +71,9 @@ class GenerationEvolver:
         raw_fitness = np.array(backtest.fitness(metric="sharpe"))
         # Clip fitness values to a reasonable range
         raw_fitness = np.clip(raw_fitness, -200.0, 200.0)
-        
-        pnl_array = backtest.get_portfolio().value().to_numpy().T
-        return raw_fitness, pnl_array
+        if(return_pnl):
+            return raw_fitness,backtest.get_portfolio()
+        return raw_fitness#, pnl_array
     
     @staticmethod
     def _calculate_elite_mean_fitness(fitness_array: np.ndarray) -> float:
@@ -206,14 +206,17 @@ class GenerationEvolver:
         pop_size = len(current_pop)
         
         #Elitism: Preserve the best individuals
-        sorted_indices = sorted(range(pop_size), key=lambda i: fitness_arr_with_indices[i][0], reverse=True)
-        elite_indices = sorted_indices[:self.num_elite]
-        next_gen_pop = [current_pop[i] for i in elite_indices]
+
+        org_fitness_arr = self._calculate_fitness(current_pop, dataset, base_signals)
+        sorted_fitness_arr=sorted(fitness_arr_with_indices, key=lambda x: x[0], reverse=True)
+        next_gen_pop=[current_pop[ind] for i,(_,ind) in sorted_fitness_arr[:self.num_elite]]
+        
         
         #Crossover: Create the rest of the new generation
-        num_children_needed = pop_size - self.num_elite
+        num_children_needed = pop_size - self.num_elite+1# 1 to always have a pair of children when num_children is odd
         fitness_scores_only = np.array([f[0] for f in fitness_arr_with_indices])
         
+        parent_trees,children_trees,parent_fit_arr=[],[],[]
         for _ in range(num_children_needed // 2):
             id1 = self.ga_ops.selection(fitness_scores_only, k=3)
             id2 = self.ga_ops.selection(fitness_scores_only, k=3)
@@ -222,13 +225,23 @@ class GenerationEvolver:
 
             parent1, parent2 = current_pop[id1], current_pop[id2]
             
-            # Perform crossover using the GeneticOperators class
+            #Perform crossover using the GeneticOperators class
             if self.rng.random() < optimizer_state.curr_cross_rate:
                 child1, child2 = self.ga_ops.crossover(parent1, parent2)
-                next_gen_pop.extend([child1, child2])
+                parent_trees.extend([parent1, parent2])
+                children_trees.extend([child1, child2])
+                parent_fit_arr.extend([org_fitness_arr[id1], org_fitness_arr[id2]])
             else:
                 next_gen_pop.extend([copy.deepcopy(parent1), copy.deepcopy(parent2)])
-
+        
+        # Level 2 selection: Choose the best among parents and children
+        if children_trees:
+            children_fit_arr = self._calculate_fitness(children_trees, dataset, base_signals)
+            for i in range(len(children_trees),2):
+                if (max(children_fit_arr[i],children_fit_arr[i+1])> min(parent_fit_arr[i],parent_fit_arr[i+1])):
+                    next_gen_pop.extend([children_trees[i], children_trees[i+1]])
+                else:
+                    next_gen_pop.extend([parent_trees[i], parent_trees[i+1]])
         #Mutation
         num_mutations = int(len(next_gen_pop) * optimizer_state.curr_mut_rate)
         if num_mutations > 0:
@@ -237,7 +250,11 @@ class GenerationEvolver:
                 self.ga_ops.mutation(next_gen_pop[i])
 
         #Evaluate the new generation
-        new_raw_fitness, new_pnl_array = self._calculate_fitness(next_gen_pop, dataset, base_signals)
+        new_raw_fitness, metrics = self._calculate_fitness(next_gen_pop, dataset, base_signals, return_pnl=True)
+        signal_names=metrics.value().columns
+        new_pnl_array=[]
+        for signal_name in signal_names:
+            new_pnl_array.append(metrics.value()[signal_name].values)
         new_penalized_fitness = self._suppress_fitness_by_similarity(new_pnl_array, new_raw_fitness, curr_gen, tot_gen)
         
         new_fitness_with_indices = list(zip(new_penalized_fitness, range(len(next_gen_pop))))
@@ -251,6 +268,6 @@ class GenerationEvolver:
                 np.array([f[0] for f in new_fitness_with_indices])
             )
 
-        avg_new_fitness = np.mean(sorted(new_penalized_fitness, reverse=True)[:self.num_elite])
+        avg_new_fitness = np.mean(sorted(new_penalized_fitness, reverse=True)[:10])
 
         return next_gen_pop, avg_new_fitness, new_fitness_with_indices, new_pnl_array, optimizer_state
