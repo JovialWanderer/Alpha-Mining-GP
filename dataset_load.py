@@ -1,6 +1,5 @@
 from hyperparam import *
 import pandas as pd
-import re
 
 def load(
     df: pd.DataFrame,
@@ -16,7 +15,7 @@ def load(
     """
     df = df.copy()
     start_col=config['execution']['start_col']
-    # --- Extract OHLCV and Indicator columns ---
+    # Extract OHLCV and Indicator columns
     ohlcv_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
     ohlcv_cols_set = set(ohlcv_cols)
     
@@ -27,19 +26,18 @@ def load(
     if not indicator_cols:
         raise ValueError("No indicator columns found in the DataFrame.")
 
-    # --- Shifting ---
+    # Shifting
     if do_shift:
         df[indicator_cols] = df[indicator_cols].shift(shift_amt)
-        df = df.fillna(0)
+        df.fillna(0,inplace=True)  # Fill NaN values resulting from the shift with 0 or any other appropriate value
     
-    # --- Shuffling ---
+    # Shuffling 
     if do_shuffle:
         rng.shuffle(indicator_cols)
         final_col_order = ohlcv_cols + indicator_cols
         df = df[final_col_order]
         
-    # --- Renaming---
-    # List of new generic 'f' names
+    # Renaming-List of new generic 'f' names
     new_f_names = [f'f{i+1}' for i in range(len(indicator_cols))]
     current_indicator_cols = df.columns[start_col:]
     rename_map = dict(zip(current_indicator_cols, new_f_names))

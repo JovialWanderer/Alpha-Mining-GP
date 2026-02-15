@@ -1,4 +1,5 @@
 import numpy as np
+from hyperparam import *
 
 class TreeNode:
   def __init__(self, val=0, height=1, ismut=False, left=None, right=None):
@@ -35,4 +36,4 @@ OPERATOR_DISPATCH = {
     10: lambda signal: np.log(np.maximum(signal, 1e-8)), # Safe log
     # Add entries for 11, 12, etc. here
 }
-NUM_BINARY_OPERATORS = 5
+NUM_BINARY_OPERATORS = config['indicators']['num_binary_operators']

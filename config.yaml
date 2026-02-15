@@ -12,8 +12,8 @@ volatility:
     dist: "StudentsT"
 indicators:
   num_indicators: 30 # Number of Technical Indicators/Strategies/Base Alphas
+  num_binary_operators: 5 # When changing this, update Tree Signal function
   operators:
-    num_binary_operators: 5 # When changing this, update Tree Signal function
     id_to_name_map:
       0: ADD
       1: SUBTRACT
