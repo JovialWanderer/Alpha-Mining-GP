@@ -14,7 +14,7 @@ def calculate_similarity_matrix_np(data_matrix):
         (e.g., shape (num_individual,num_individual)). Returns NaN for correlations involving
         constant rows (zero standard deviation) or rows with insufficient data points.
     """
-    # --- Input Validation---
+    #Input Validation
     if not isinstance(data_matrix, np.ndarray):
         raise TypeError("Input must be a NumPy array.")
     if data_matrix.ndim != 2:
@@ -35,17 +35,15 @@ def calculate_similarity_matrix_np(data_matrix):
         print(f"Warning: Number of samples ({num_samples}) is less than 2. Cannot calculate correlation.")
         return np.full((num_arrays, num_arrays), np.nan) # Return NaN matrix
 
-    # --- Calculate Correlation Matrix ---
+    #Calculate Correlation Matrix 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning)
-        # Ensure input is float for correlation calculation
         correlation_matrix = np.corrcoef(data_matrix.astype(float, copy=False))
 
-    # Safeguard for unexpected scalar output (should be handled by checks above)
+    #Safeguard for unexpected scalar output
     if correlation_matrix.shape == ():
          return np.full((num_arrays, num_arrays), np.nan)
 
-    # Ensure the output shape is correct
     if correlation_matrix.shape != (num_arrays, num_arrays):
          print(f"Warning: Unexpected output shape {correlation_matrix.shape}. Expected ({num_arrays}, {num_arrays}). Returning NaN matrix.")
          return np.full((num_arrays, num_arrays), np.nan)
@@ -74,15 +72,15 @@ def analyze_similarity(similarity_matrix, threshold=config['evolutionary_algorit
     if similarity_matrix.shape[0] != similarity_matrix.shape[1]:
          raise ValueError("Input similarity_matrix must be square.")
 
-    # 1. Replace NaNs with 0
+    #Replace NaNs with 0
     cleaned_matrix = np.nan_to_num(similarity_matrix, nan=0.0)
 
-    # 2. Count elements above threshold (excluding diagonal)
+    #Count elements above threshold (excluding diagonal)
     num_items = cleaned_matrix.shape[0]
     if num_items == 0:
         return cleaned_matrix, np.array([], dtype=int) # Return empty counts for empty input
 
-    # Create boolean matrix where condition (value > threshold) is met
+    #Create boolean matrix where condition (value > threshold) is met
     above_threshold_matrix = cleaned_matrix > threshold
 
     # The diagonal is False to exclude self-similarity (corr(i, i)),so we only count j != i

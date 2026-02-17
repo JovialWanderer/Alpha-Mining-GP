@@ -36,7 +36,7 @@ class GeneticOperators:
         """Swaps a child of a unary node with a child of a binary node."""
         if root_a.left and root_b.left:
             # Choose whether to swap with the binary node's left or right child
-            if self.rng.integers(low=0, high=2):  # 50/50 chance
+            if self.rng.integers(low=0, high=2):
                 root_a.left, root_b.right = root_b.right, root_a.left
             else:
                 root_a.left, root_b.left = root_b.left, root_a.left
