@@ -65,7 +65,7 @@ def add_depth_binary(base_pop: list[TreeNode], n: int, rng: np.random.Generator)
     if len(base_pop) < 2:
         return []
 
-    #---Pair Selection---
+    #Pair Selection
     #Generate all possible unique pairs of indices
     all_pairs_indices = list(itertools.combinations(range(len(base_pop)), 2))
     
@@ -76,13 +76,11 @@ def add_depth_binary(base_pop: list[TreeNode], n: int, rng: np.random.Generator)
     chosen_pair_indices = rng.choice(len(all_pairs_indices), size=num_pairs_to_sample, replace=replace)
 
     base_pop_new = []
-    num_binary_ops = config['indicators']['operators']['num_binary_operators']
-    
     for pair_idx in chosen_pair_indices:
         left_id, right_id = all_pairs_indices[pair_idx]
         
         root = TreeNode()
-        op_val = rng.integers(low=0, high=num_binary_ops)        
+        op_val = rng.integers(low=0, high=NUM_BINARY_OPERATORS)        
         new_tree = binary_create_tree(base_pop[left_id], base_pop[right_id], root, op_val)
         
         base_pop_new.append(new_tree)
@@ -109,12 +107,10 @@ def add_depth_unary(base_pop: list[TreeNode], n: int, rng: np.random.Generator) 
         chosen_indices = np.concatenate([all_unique_indices, remaining_indices])
 
     base_pop_new = []
-    num_binary_ops = config['operators']['num_binary_operators']
-    num_total_ops = config['operators']['num_operators']
 
     for i in chosen_indices:
         root = TreeNode()
-        op_val = rng.integers(low=num_binary_ops, high=num_total_ops)
+        op_val = rng.integers(low=NUM_BINARY_OPERATORS, high=NUM_TOTAL_OPERATORS)
         new_tree = unary_create_tree(base_pop[i], root, op_val)
         
         base_pop_new.append(new_tree)
@@ -143,7 +139,23 @@ def test_signal_generator(optim_tree,base_signals):
     return final_signal
 
 
-def dataset_preprocess(df,indicator_cols,start_idx,end_idx,isfirst=False,istest=False):
+def dataset_preprocess(df: pd.DataFrame,indicator_cols:list,start_idx:int,end_idx:int,isfirst=False,istest=False):
+    """
+    Preprocesses the dataset to extract base signals for training or testing.
+
+    Args:
+        df (pd.DataFrame): The input DataFrame.
+        indicator_cols (list): List of column names for indicators.
+        start_idx (int): Start index for slicing the DataFrame.
+        end_idx (int): End index for slicing the DataFrame.
+        isfirst (bool): Flag to indicate if it's the first dataset iteration for warmstart.
+        istest (bool): Flag to indicate if it's for the test set.
+
+    Returns:
+        If istest: Array of base signals for the test set.
+        If isfirst: Tuple of (list of base trees, NumPy array of base signals) for the initial warmstart.
+        Otherwise array of base signals for the specified training range.
+    """
     if istest:
        base_signals = df[indicator_cols].values.T
        return base_signals

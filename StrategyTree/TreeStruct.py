@@ -37,3 +37,4 @@ OPERATOR_DISPATCH = {
     # Add entries for 11, 12, etc. here
 }
 NUM_BINARY_OPERATORS = config['indicators']['num_binary_operators']
+NUM_TOTAL_OPERATORS = config['indicators']['num_operators']

@@ -13,6 +13,7 @@ def tree_signal(base_signals: list[np.ndarray], node: TreeNode) -> np.ndarray:
         return base_signals[node.val].astype(np.float16)
 
     #---Operator Evaluation using Dictionary Lookup---
+    result = np.zeros(len(base_signals[0]), dtype=np.float16)
     try:
         op_func = OPERATOR_DISPATCH[node.val]
     except KeyError:
