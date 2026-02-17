@@ -2,7 +2,7 @@ import vectorbt as vbt
 from typing import Literal
 from hyperparam import *
 
-# Define a literal type for valid fitness metrics for better type hinting
+# Define a literal type for valid fitness metrics
 FitnessMetric = Literal[
     "sharpe", "information_ratio", "max_drawdown", 
     "calmar_ratio", "sortino_ratio", "omega_ratio"
@@ -89,13 +89,8 @@ class VectorBacktest:
             entries=entries_df,
             exits=exits_df,
             init_cash=config['backtest']['initial_cash'],
-            sl_stop=config['backtest']['stop_loss_percent'],
-            tp_stop=config['backtest']['take_profit_percent'],
-            size=config['backtest']['order_size'],
-            size_type=config['backtest']['order_size_type'],
             slippage=config['backtest']['slippage'],
             fees=config['backtest']['fees'],
-            accumulate=True,
             freq=config['backtest']['freq']
         )
         
@@ -124,7 +119,7 @@ class VectorBacktest:
             "calmar_ratio": self.portfolio.calmar_ratio,
             "sortino_ratio": self.portfolio.sortino_ratio,
             "omega_ratio": self.portfolio.omega_ratio,
-            "max_drawdown": lambda: -self.portfolio.max_drawdown(), #Negative for maximization
+            "max_drawdown": lambda: -self.portfolio.max_drawdown, #Negative for maximization
             "information_ratio": lambda: self.portfolio.information_ratio(self.benchmark_returns)
         }
         
