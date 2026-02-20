@@ -69,8 +69,9 @@ class GenerationEvolver:
         backtest = VectorBacktest(dataset, signals_to_test)
         
         raw_fitness = np.array(backtest.fitness(metric="sharpe"))
-        # Clip fitness values to a reasonable range
+        # Clip fitness values to a reasonable range as Vectorbt returns -inf/inf for no trades which can destabilize the algorithm
         raw_fitness = np.clip(raw_fitness, -200.0, 200.0)
+        raw_fitness = np.where(raw_fitness >= 200.0, 0.0, raw_fitness)
         if(return_pnl):
             return raw_fitness,backtest.get_portfolio()
         return raw_fitness#, pnl_array
@@ -110,7 +111,7 @@ class GenerationEvolver:
         # Create a mutable copy to update
         new_state = copy.deepcopy(optimizer_state)
         
-        cross_bounds = (config['evolutionary_algorithm']['crossover']['min'], config['evolutionary_algorithm']['crossover']['max'])
+        cross_bounds = (config['evolutionary_algorithm']['rate_limits']['crossover']['min'], config['evolutionary_algorithm']['rate_limits']['crossover']['max'])
         next_cross_rate, mom_cross, vel_cross = self._adam_controller(
             prev_rate=new_state.prev_cross_rate, curr_rate=new_state.curr_cross_rate,
             prev_momentum=new_state.prev_cross_mom, prev_velocity=new_state.prev_cross_vel,
@@ -120,7 +121,7 @@ class GenerationEvolver:
         new_state.prev_cross_rate, new_state.curr_cross_rate = new_state.curr_cross_rate, next_cross_rate
         new_state.prev_cross_mom, new_state.prev_cross_vel = mom_cross, vel_cross
 
-        mut_bounds = (config['evolutionary_algorithm']['mutation']['min'], config['evolutionary_algorithm']['mutation']['max'])
+        mut_bounds = (config['evolutionary_algorithm']['rate_limits']['mutation']['min'], config['evolutionary_algorithm']['rate_limits']['mutation']['max'])
         next_mut_rate, mom_mut, vel_mut = self._adam_controller(
             prev_rate=new_state.prev_mut_rate, curr_rate=new_state.curr_mut_rate,
             prev_momentum=new_state.prev_mut_mom, prev_velocity=new_state.prev_mut_vel,
@@ -150,7 +151,7 @@ class GenerationEvolver:
 
         #Estimate the gradient
         gradient = delta_fitness / robust_delta_rate
-
+        gradient = np.clip(gradient,-1e6, 1e6)
         #Update Momentum and Velocity
         beta1 = config['evolutionary_algorithm']['crossover_mutation_params']['beta1']
         beta2 = config['evolutionary_algorithm']['crossover_mutation_params']['beta2']
@@ -167,7 +168,7 @@ class GenerationEvolver:
         next_rate = curr_rate + eta * momentum_hat / (np.sqrt(velocity_hat) + epsilon)
 
         #Clip the rate to bounds
-        return np.clip(next_rate, rate_bounds[0], rate_bounds[1]), curr_momentum, curr_velocity
+        return np.clip(next_rate+np.random.uniform(-1e6,1e6), rate_bounds[0], rate_bounds[1]), curr_momentum, curr_velocity
 
     def _suppress_fitness_by_similarity(
         self, pnl_array: np.ndarray, fitness_array: np.ndarray, curr_gen: int, tot_gen: int
@@ -209,7 +210,7 @@ class GenerationEvolver:
 
         org_fitness_arr = self._calculate_fitness(current_pop, dataset, base_signals)
         sorted_fitness_arr=sorted(fitness_arr_with_indices, key=lambda x: x[0], reverse=True)
-        next_gen_pop=[current_pop[ind] for i,(_,ind) in sorted_fitness_arr[:self.num_elite]]
+        next_gen_pop=[current_pop[ind] for _,(_,ind) in sorted_fitness_arr[:self.num_elite]]
         
         
         #Crossover: Create the rest of the new generation
@@ -261,7 +262,7 @@ class GenerationEvolver:
         
         #Update adaptive rates and return
         if not self.is_fixed_rate:
-            # Assuming you have an unpenalized version of the previous fitness array
+            # Assuming we have an unpenalized version of the previous fitness array
             optimizer_state = self._update_adaptive_rates(
                 optimizer_state, curr_gen, 
                 np.array([f[0] for f in fitness_arr_with_indices]), 
