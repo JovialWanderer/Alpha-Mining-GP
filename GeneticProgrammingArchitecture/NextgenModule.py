@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from GA_Integration.kwargs_dataclass import OptimizerState
 from hyperparam import *
 from SimilarityScore import *
 from StrategyTree.TreeStruct import TreeNode
@@ -9,23 +9,8 @@ import numpy as np
 import random
 import numpy as np
 import pandas as pd
-from typing import List, Tuple
+from typing import List, Tuple , Optional
 import copy
-@dataclass
-class OptimizerState:
-    """A structured container for the evolutionary optimizer's state."""
-    prev_cross_rate: float
-    curr_cross_rate: float
-    prev_cross_mom: float
-    prev_cross_vel: float
-    prev_mut_rate: float
-    curr_mut_rate: float
-    prev_mut_mom: float
-    prev_mut_vel: float
-    beta1: float
-    beta2: float
-    eta: float
-    dataset_iteration: int = 0
 
 
 
@@ -58,7 +43,7 @@ class GenerationEvolver:
 
     def _calculate_fitness(
         self, population: List[TreeNode], dataset: pd.DataFrame, base_signals: list,return_pnl: bool = False
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
         """Calculates raw fitness and PnL arrays for a population."""
         signals_to_test = []
         for tree in population:

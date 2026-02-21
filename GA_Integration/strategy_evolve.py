@@ -14,13 +14,11 @@ class StrategyEvolver:
     evolving strategies across different depths and datasets, including fitness
     evaluation and diversity management.
     """
-    def __init__(self, config: dict, rng: np.random.Generator, warmstarter: PopulationWarmstarter):
-        self.config = config
+    def __init__(self, config: dict, rng: np.random.Generator, warmstarter: PopulationWarmstarter, gen_evolver: GenerationEvolver):
         self.rng = rng
         self.warmstarter = warmstarter
-        self.num_depth = config['training']['num_depth']
-        self.ga_params = config['ga']
-        self.adam_params = config['adam']
+        self.num_depth = config['integration']['num_depth']
+        self.gen_evolver = gen_evolver
 
     def _get_initial_optimizer_state(self) -> OptimizerState:
         """Creates the initial state for the optimizer from the config."""
@@ -44,32 +42,11 @@ class StrategyEvolver:
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Evaluates a population, calculates fitness, and applies diversity penalties.
-        This is a reusable helper that replaces duplicated code.
         """
-        # 1. Generate signals for the entire population
-        signals_to_test = []
-        for tree in population:
-            signal = tree_signal(base_signals, tree)
-            final_signal = np.where(signal > config['backtest']['signal_threshold'], 1,
-                                    np.where(signal < -self.config['backtest']['signal_threshold'], -1, 0))
-            signals_to_test.append(final_signal)
-        
-        # 2. Run backtest
-        backtest = VectorBacktest(dataset, np.array(signals_to_test))
-        metrics = backtest.get_portfolio()
-        
-        # 3. Calculate raw fitness and PnL arrays
-        raw_fitness = np.array(backtest.fitness(metric="sharpe"))
+        raw_fitness, metrics = self.gen_evolver._calculate_fitness(population, dataset, base_signals, return_pnl=True)
         pnl_array = [metrics.value()[col].values for col in metrics.value().columns]
-
-        # 4. Apply diversity penalty
-        # Assuming these are available utility functions
-        similarity_matrix = calculate_similarity_matrix_np(pnl_array)
-        _, counts = analyze_similarity(similarity_matrix)
+        penalized_fitness = self.gen_evolver._suppress_fitness_by_similarity(pnl_array, raw_fitness, 0, config['integration']['num_generations'])
         
-        penalized_fitness = np.array([
-            (fit / (1.0 + counts[i]),i) for i, fit in enumerate(raw_fitness)
-        ])        
         return penalized_fitness
 
     def _run_evolution_loop(
@@ -83,9 +60,10 @@ class StrategyEvolver:
         fitness_arr= self._evaluate_population(current_pop, dataset_chunks[0], signal_chunks[0])
 
         best_fitness = -np.inf
-        best_strategy_pop = current_pop
-        # Get top 10% for early stopping comparison
+        best_strategy_pop = current_pop.copy()
+        #Get top 10% for early stopping comparison
         sorted_fitness = sorted(fitness_arr, key=lambda x: x[0], reverse=True)
+        num_elite = max(1, len(sorted_fitness) // 10)
         prev_avg_fit = np.mean([x[0] for x in sorted_fitness[:num_elite]])
         
         stop_counter = 1
@@ -103,8 +81,7 @@ class StrategyEvolver:
                     rng=self.rng,
                     ga_ops=GeneticOperators(self.rng),
                 )
-                current_pop, next_avg_fit, fitness_arr, pnl_arr, optimizer_state = \
-                    simulated_next_gen.evolve(
+                current_pop, next_avg_fit, fitness_arr,_, optimizer_state = simulated_next_gen.evolve(
                     current_pop=current_pop,
                     fitness_arr_with_indices=fitness_arr,
                     dataset=data_chunk,
@@ -132,7 +109,6 @@ class StrategyEvolver:
     def run_initial_evolution(self, dataset: list, base_signals: list, base_trees: list, is_high: bool) -> dict:
         """
         Runs the full, initial evolutionary process for a new volatility regime.
-        This replaces the old `integrator` and `best_strategy` functions.
         """
         optimizer_state = self._get_initial_optimizer_state()
         strategy_population = base_trees[0]
@@ -143,7 +119,7 @@ class StrategyEvolver:
 
             # Run the main evolution loop
             best_pop, best_fit, final_state = self._run_evolution_loop(
-                warm_pop, dataset, base_signals, optimizer_state, d, is_high
+                warm_pop.copy(), dataset, base_signals, optimizer_state, d, is_high
             )
             
             depth_results[d] = {
@@ -154,6 +130,25 @@ class StrategyEvolver:
             strategy_population = best_pop  # The best from this depth becomes the base for the next
             print(f"##*****************DEPTH {d} has BEST_FITNESS of {best_fit}***********************##")
         return depth_results
+    
+    def run_advanced_evolution(self, dataset: list, base_signals: list, new_trees: list,
+                               depth:int,best_fit:float,warmstart_percent:float,warmstart_trees:list[TreeNode],
+                               ishigh: bool,optimizer_state: OptimizerState) -> dict:
+        """
+        Runs the full, advanced evolutionary process for a new volatility regime.
+        """
+        strategy_population = new_trees[0]
+        warm_pop = self.warmstarter.advance(prev_trees=strategy_population.copy(),new_base_trees=warmstart_trees.copy(),factor=warmstart_percent)
 
-    # The 'run_advanced_evolution' method would be structured similarly,
-    # calling warmstarter.advance() and the same _run_evolution_loop helper.
+        # Run the main evolution loop
+        strategy_population, best_fit, final_state = self._run_evolution_loop(
+            warm_pop.copy(), dataset, base_signals, optimizer_state, depth, ishigh
+        )
+        
+        depth_results= {
+            'best_fit': best_fit,
+            'tree_opt': strategy_population,
+            'optimizer_state': final_state
+        }
+        print(f"##*****************ADVANCED DEPTH {depth} has BEST_FITNESS of {best_fit}***********************##")
+        return depth_results
