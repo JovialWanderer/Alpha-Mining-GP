@@ -27,14 +27,13 @@ class PopulationWarmstarter:
     def _create_initial_population(self, base_trees: List[TreeNode]) -> List[TreeNode]:
         """
         Generates a mix of unary and binary rooted trees for the first warmstart.
-        This is a private helper method.
         """
         count = len(base_trees)
         target_size = int(self.num_individuals * self.initial_warmstart_factor)
         
         # Determine the split between unary and binary trees
         num_rng = self.rng.integers(low=0, high=count + 1)
-        num_unary = min(num_rng, target_size//5)
+        num_unary = min(num_rng, target_size)
         num_binary = target_size - num_unary
         
         # Ensure counts are not negative
@@ -68,8 +67,8 @@ class PopulationWarmstarter:
             return []
 
         #The number of new unary trees relatively small
-        num_unary = self.rng.integers(low=0, high=max(2, count // 5))
-        num_binary = count - num_unary
+        num_unary = max(0,self.rng.integers(low=0, high=max(2, count)))
+        num_binary = max(0,count - num_unary)
         
         print(f"Number of new binary & unary trees: {num_binary},{num_unary} (Total: {count})")
         
@@ -85,7 +84,7 @@ class PopulationWarmstarter:
         Combines the previous generation with newly generated trees and then
         samples to create the next generation.
         """
-        if factor <= 0.01:
+        if factor <= 1e-3:  # If the factor is too small, skip generating new trees and just return the previous ones-change tis threshold as needed
             return prev_trees
 
         new_warm_trees = self._create_advanced_population(new_base_trees, factor)
