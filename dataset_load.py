@@ -10,8 +10,7 @@ def load(
 ) -> pd.DataFrame:
     """
     Loads and preprocesses the DataFrame by shifting, shuffling, and renaming columns.
-    
-    This function works on a copy of the input DataFrame to ensure reproducibility.
+    This function works on a copy of the input DataFrame.
     """
     df = df.copy()
     start_col=config['execution']['start_col']
@@ -26,7 +25,7 @@ def load(
     if not indicator_cols:
         raise ValueError("No indicator columns found in the DataFrame.")
 
-    # Shifting
+    # Shifting- to prevent lookahead bias, we shift the indicator columns by a specified amount (default is 1)
     if do_shift:
         df[indicator_cols] = df[indicator_cols].shift(shift_amt)
         df.fillna(0,inplace=True)  # Fill NaN values resulting from the shift with 0 or any other appropriate value

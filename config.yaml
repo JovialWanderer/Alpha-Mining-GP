@@ -100,7 +100,7 @@ execution:
     avg_test_result_initial: 0.0 # Initial value
     dict_low_initial: {} # Initial empty dict
     dict_high_initial: {} # Initial empty dict
-  start_col: 5
+  start_col: 6
 
 # Ablation & Feature Flags
 ablation:
