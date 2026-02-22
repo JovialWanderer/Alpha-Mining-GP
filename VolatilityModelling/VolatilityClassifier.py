@@ -1,31 +1,32 @@
 from arch import arch_model
+from arch.univariate.base import ARCHModelResult
 from hyperparam import *
 
 def volatility_classifier(dataset: pd.DataFrame):
     """
     Fits a GARCH model and classifies the original data into contiguous high and low volatility periods.
     """
-    # --- 1. GARCH Model Fitting ---
+    #GARCH Model Fitting 
     df = dataset.copy()
     
-    # Calculate absolute percent returns for GARCH modeling
+    # Calculate absolute percent returns for GARCH modeling- also scale by 100 to increase numerical stability
     returns = np.abs(df['Close'].pct_change().dropna() * 100)
 
     # Fit the GARCH model
-    vol_params = config['volatility']['params']
+    vol_params = config['volatility']['params']# Extract GARCH parameters from config
     model = arch_model(
         returns,
         p=vol_params['p'],
         q=vol_params['q'],
         o=vol_params.get('o', 0),
         power=vol_params.get('power', 2.0),
-        dist=vol_params.get('dist', 'normal')
+        dist=vol_params.get('dist', 'StudentsT'),
     )
     garch_result = model.fit(disp="off")
     predict_vol = garch_result.conditional_volatility
 
-    # --- 2. Classify Volatility into Blocks ---
-    window = config['execution']['vanilla_window']
+    # Classify Volatility into Blocks 
+    window = config['execution']['warmstart']['vanilla_window']
     block_means = [
         np.mean(predict_vol[i : i + window])
         for i in range(0, len(predict_vol), window)
@@ -35,7 +36,7 @@ def volatility_classifier(dataset: pd.DataFrame):
     vol_threshold = np.mean(block_means)
     classified_blocks = [1 if mean > vol_threshold else 0 for mean in block_means]
 
-    # --- 3. Identify Contiguous Regime Boundaries (Refactored Logic) ---
+    #  3. Identify Contiguous Regime Boundaries (Refactored Logic) 
     regimes = []
     if not classified_blocks:
         # Handle case with no data
@@ -47,18 +48,16 @@ def volatility_classifier(dataset: pd.DataFrame):
 
     for i in range(1, len(classified_blocks)):
         if classified_blocks[i] != current_regime_type:
-            # Regime has changed, finalize the previous one
+            # Regime has changed, finalize the previous one and start a new one
             regime_end_index = i * window
             regimes.append((regime_start_index, regime_end_index, current_regime_type))
-            
-            # Start a new regime
             current_regime_type = classified_blocks[i]
             regime_start_index = i * window
 
     final_end_index = len(predict_vol)
     regimes.append((regime_start_index, final_end_index, current_regime_type))
     
-    # --- 4. Create Datasets from Identified Boundaries ---
+    # Create Datasets from Identified Boundaries 
     aligned_df = df.iloc[1:].reset_index(drop=True)
 
     high_vol_datasets, low_vol_datasets = [], []
@@ -86,3 +85,47 @@ def volatility_classifier(dataset: pd.DataFrame):
         start_low_ind,
         end_low_ind,
     )
+
+def perform_rolling_garch_forecast(
+    dataset: pd.DataFrame,
+    garch_result: ARCHModelResult,
+    dataset_test: pd.DataFrame
+) -> np.ndarray:
+    """
+    Forecast volatility for the test dataset using a rolling GARCH model fitted on the training dataset.
+    """
+    train_returns = dataset['Close'].pct_change().dropna() * 100
+    test_returns = dataset_test['Close'].pct_change().dropna() * 100
+
+    garch_params = {
+        'p': garch_result.model.volatility.p,
+        'q': garch_result.model.volatility.q,
+        'o': garch_result.model.volatility.o,
+        'power': garch_result.model.volatility.power,
+        'dist': garch_result.model.distribution.name,
+    }
+
+    step_size = config['execution']['data_window']['forecast_horizon']
+    all_forecasts = []
+
+    for i in range(0, len(test_returns), step_size):
+
+        current_train = pd.concat([train_returns, test_returns.iloc[:i]])
+
+        model = arch_model(current_train, **garch_params)
+        res = model.fit(disp='off', show_warning=False)
+
+        horizon = min(step_size, len(test_returns) - i)
+        if horizon <= 0:
+            break
+
+        forecast = res.forecast(horizon=horizon, reindex=False)
+        variance_chunk = forecast.variance.values[-1]
+        all_forecasts.append(np.sqrt(variance_chunk))
+
+    if not all_forecasts:
+        return np.array([])
+
+    pred_volatility = np.concatenate(all_forecasts)
+
+    return pred_volatility[:len(test_returns)]

@@ -86,6 +86,7 @@ execution:
     train_end_idx: 1000
     test_start_idx: 1000
     test_end_idx: 1500
+    forecast_horizon: 10 # Number of days to forecast ahead
     sliding_window_days: 150
     fixed_train_length: 1000 # Calculated as train_end_idx - train_start_idx
     fixed_test_length: 500 # Calculated as test_end_idx - test_start_idx
@@ -94,6 +95,7 @@ execution:
     current_warmstart_percent: 0.9 # This will be set based on is_consecutive_warmstart
     num_regimes: 2
     vanilla_window: 100
+    test_mean_window: 30
     dataset_iteration: 0 # Denotes the sub-dataset being used
   result_tracking:
     avg_sharpe_dict_initial: {} # Initial empty dict, will be populated by code

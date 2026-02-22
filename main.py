@@ -6,12 +6,9 @@ from typing import Dict, Any
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-
-# --- Import all project modules and classes ---
-# (Ensure these paths are correct for your project structure)
 from hyperparam import *
 from packages import *
-from VolatilityModelling.VolatilityClassifier import volatility_classifier
+from VolatilityModelling.VolatilityClassifier import volatility_classifier,perform_rolling_garch_forecast
 from WarmStart import PopulationWarmstarter
 from GeneticProgrammingArchitecture.GPUtils import GeneticOperators
 from GeneticProgrammingArchitecture.NextgenModule import GenerationEvolver, OptimizerState
@@ -21,7 +18,7 @@ from StrategyTree.TreeUtils import dataset_preprocess,test_signal_generator,chec
 from StrategyTree.TreeSignalCalc import tree_signal
 from StrategyTree.TreeStruct import TreeNode
 
-# --- 1. SETUP LOGGING ---
+#  SETUP LOGGING 
 def setup_logging():
     """Configures the logging for the entire application."""
     logging.basicConfig(
@@ -29,14 +26,14 @@ def setup_logging():
         format="%(asctime)s [%(levelname)s] - %(message)s",
         handlers=[
             logging.FileHandler("evolution_pipeline.log", mode='w'),
-            logging.StreamHandler(sys.stdout) # Also print to console
+            logging.StreamHandler(sys.stdout) #Print to console
         ]
     )
     logging.info("Logging configured.")
 
-# --- 2. SETUP CHECKPOINTING ---
+# SETUP CHECKPOINTING 
 CHECKPOINT_FILE = "checkpoint.pkl"
-
+timeperiod_based_top, avg_test_res, avg_sharpe_dict = {}, {}, {}
 def save_checkpoint(state: Dict[str, Any]):
     """Saves the current state of the pipeline to a file."""
     try:
@@ -60,7 +57,7 @@ def load_checkpoint() -> Dict[str, Any] | None:
         logging.error(f"Error loading checkpoint: {e}. Starting a new run.")
         return None
 
-# --- 3. REFACTORED BACKTESTING & EVALUATION LOGIC ---
+#  BACKTESTING & EVALUATION LOGIC 
 def run_backtest_and_evaluation(
     df: pd.DataFrame,
     train_df: pd.DataFrame,
@@ -77,7 +74,7 @@ def run_backtest_and_evaluation(
     """
     logging.info("Starting backtesting and evaluation for the current window.")
     
-    # --- Rolling GARCH Forecast ---
+    #  Rolling GARCH Forecast 
     # (This is the corrected logic from our previous discussion)
     train_returns = train_df['Close'].pct_change().dropna() * 100
     test_returns = test_df['Close'].pct_change().dropna() * 100
@@ -101,7 +98,7 @@ def run_backtest_and_evaluation(
         
     pred_volatility = np.concatenate(all_forecasts)[:len(test_df)]
     
-    # --- Volatility Classification ---
+    #  Volatility Classification 
     combined_vol = np.concatenate([predict_vol, pred_volatility])
     classified_vol = np.zeros_like(pred_volatility, dtype=int)
     vanilla_window = config['execution']['warmstart']['vanilla_window']
@@ -111,7 +108,7 @@ def run_backtest_and_evaluation(
         if pred_volatility[idx] > roll_mean:
             classified_vol[idx] = 1
 
-    # --- Signal Generation & Backtesting ---
+    #  Signal Generation & Backtesting 
     base_signals = dataset_preprocess(test_df, list(df.columns[config['execution']['start_col']:]), istest=True)
     depth_sharpe_map = {}
     
@@ -136,32 +133,174 @@ def run_backtest_and_evaluation(
         
     return depth_sharpe_map
 
-# --- 4. MAIN EXECUTION PIPELINE ---
+#Continued Evolution On New Walkforward Windows
+def continued_evolution_training(train_df:pd.DataFrame,indicator_cols:list,start_ind:list,end_ind:list,
+                                 dict_regime:dict[dict],regime_vol_dataset:list,evolver:StrategyEvolver,curr_warmstart_percent:float,ishigh=True):
+
+    for index in range(2, config['integration']['num_depth'] + 1):
+        base_signals=[dataset_preprocess(train_df, indicator_cols, s, e) for s, e in zip(start_ind,end_ind)]
+        base_trees=[dict_regime[index]["tree_opt"]]*len(start_ind)
+        optim_state: OptimizerState=dict_regime[index]["optimizer_state"]
+
+        #Warmstart
+        if index> 2:
+            warmstart_regime= dict_regime[index- 1]["tree_opt"]
+        else:
+            warmstart_regime= [TreeNode(i) for i in range(config['indicators']['num_indicators'])]
+        optim_state.dataset_iteration+=1
+        logging.info(f"Dataset iteration {optim_state.dataset_iteration} for depth {index} in {'high' if ishigh else 'low'} volatility regime.")
+        if base_trees:
+            dict_regime[index]= evolver.run_advanced_evolution(regime_vol_dataset[index],base_signals,base_trees,
+                index,dict_regime[index]["best_fit"],curr_warmstart_percent,
+                warmstart_regime,ishigh=ishigh,optimizer_state=optim_state)
+        else:
+            dict_regime[index]= {
+                'best_fit': dict_regime[index]["best_fit"],
+                'tree_opt': dict_regime[index]["tree_opt"],
+                'optimizer_state': dict_regime[index]["optimizer_state"]
+            }
+    return dict_regime
+#Volatility Classification for test dataset
+def classify_volatility(
+    predict_vol: np.ndarray,
+    pred_volatility: np.ndarray,
+    window: int = 30,
+) -> np.ndarray:
+    """
+    Classifies forecasted volatility into high (1) or low (0)
+    based on rolling mean of past combined volatility.
+    """
+
+    if len(pred_volatility) == 0:
+        return np.array([], dtype=int)
+
+    combined = np.concatenate([predict_vol, pred_volatility])
+    fixed_len = len(predict_vol)
+
+    classified = np.zeros(len(pred_volatility), dtype=int)
+
+    for i in range(fixed_len, len(combined)):
+        start = max(0, i - window)
+        rolling_mean = np.mean(combined[start:i])
+
+        idx = i - fixed_len
+        classified[idx] = int(pred_volatility[idx] > rolling_mean)
+
+    return classified
+
+def evaluate_signals(
+    test_dataset: pd.DataFrame,
+    final_vol_class: np.ndarray,
+    base_signals,
+    dict_high: dict,
+    dict_low: dict,
+    dataset_iteration: int,
+    timeperiod_based_top: dict,
+):
+
+    timeperiod_based_top[dataset_iteration] = []
+
+    for depth in range(2, config['integration']['num_depth'] + 1):
+
+        high_trees = dict_high[depth]["tree_opt"]
+        low_trees = dict_low[depth]["tree_opt"]
+
+        # Generate signals
+        high_signals = [
+            test_signal_generator(tree, base_signals)
+            for tree in high_trees
+        ]
+        low_signals = [
+            test_signal_generator(tree, base_signals)
+            for tree in low_trees
+        ]
+
+        # Combine high/low regime signals
+        test_signal_arr = [
+            np.where(final_vol_class, h_sig, l_sig)
+            for h_sig in high_signals
+            for l_sig in low_signals
+        ]
+
+        # Backtest
+        backtest = VectorBacktest(test_dataset[['Close']], test_signal_arr)
+        metrics = backtest.get_portfolio()
+
+        sharpe_arr = metrics.sharpe_ratio()
+        ret_arr = metrics.total_profit()
+        mdd_arr = metrics.max_drawdown()
+
+        # Filter invalid sharpes
+        valid_indices = [
+            i for i, sp in enumerate(sharpe_arr)
+            if -200 <= sp <= 200
+        ]
+
+        if not valid_indices:
+            continue
+
+        sorted_sharpe = sorted(
+            (sharpe_arr[i] for i in valid_indices),
+            reverse=True
+        )
+
+        detail = sorted(
+            (
+                (sharpe_arr[i], ret_arr[i], mdd_arr[i])
+                for i in valid_indices
+            ),
+            reverse=True
+        )
+
+        # Best return tracking (unchanged logic)
+        max_ret = -math.inf
+        best_sharpe = 0
+
+        for i in valid_indices:
+            if ret_arr[i] > max_ret:
+                max_ret = ret_arr[i]
+                best_sharpe = sharpe_arr[i]
+
+        avg_sharpe = np.mean(sorted_sharpe[:10])
+
+        # Store results
+        timeperiod_based_top[dataset_iteration].extend(detail[:10])
+        avg_test_res[depth] += sorted_sharpe[0]
+        avg_sharpe_dict[depth].append(avg_sharpe)
+
+        print(
+            f"Depth {depth}: "
+            f"Best Sharpe={best_sharpe}, "
+            f"Return={max_ret}, "
+            f"Avg Sharpe={avg_sharpe}"
+        )
+
+    # Final sorting
+    timeperiod_based_top[dataset_iteration].sort(reverse=True)
+    timeperiod_based_top[dataset_iteration] = timeperiod_based_top[dataset_iteration][:10]
+
+#  MAIN EXECUTION PIPELINE 
 def main():
-    """Main function to run the entire evolutionary backtesting pipeline."""
+    """Main function to run the entire evolutionary pipeline."""
     setup_logging()
     
-    # --- Initialization ---
+    #Initialization 
     logging.info("Initializing pipeline components...")
     rng = np.random.default_rng(seed=config['basicfeed']['SEED'])
     df = pd.read_csv(config['basicfeed']['filepath'])
     
     # Instantiate all our helper classes
-    warmstarter = PopulationWarmstarter(
-        num_individuals=config['ga']['population']['num_individuals'],
-        initial_warmstart_factor=config['integration']['ini_warm_factor'],
-        rng=rng
-    )
-    evolver = StrategyEvolver(config, rng, warmstarter)
+    warmstarter = PopulationWarmstarter(rng=rng)
+    gen_evolver = GenerationEvolver(config, rng, GeneticOperators(rng))
+    evolver = StrategyEvolver(config, rng, warmstarter, gen_evolver)
     
-    # --- State Management & Checkpointing ---
+    #  State Management & Checkpointing 
     state = load_checkpoint()
     if state:
         train_start = state['train_start']
         dataset_iteration = state['dataset_iteration']
         dict_low = state['dict_low']
         dict_high = state['dict_high']
-        # Load other state variables as needed
     else:
         # Initial state for a fresh run
         train_start = config['execution']['data_window']['train_start_idx']
@@ -171,7 +310,7 @@ def main():
     train_end = train_start + config['execution']['data_window']['fixed_train_length']
     sliding_window = config['execution']['data_window']['sliding_window_days']
     
-    # --- Main Sliding Window Loop ---
+    #  Main Sliding Window Loop 
     while train_end < len(df):
         test_start = train_end
         test_end = test_start + config['execution']['data_window']['fixed_test_length']
@@ -179,47 +318,49 @@ def main():
             logging.info("Reached end of dataset. Exiting loop.")
             break
 
-        logging.info(f"--- Starting Iteration {dataset_iteration} | Train: {train_start}-{train_end} | Test: {test_start}-{test_end} ---")
+        logging.info(f" Starting Iteration {dataset_iteration} | Train: {train_start}-{train_end} | Test: {test_start}-{test_end} ")
         
-        # --- Data Preparation ---
+        #  Data Preparation 
         train_df = df.iloc[train_start:train_end]
-        _, predict_vol, high_vol_dataset, low_vol_dataset, high_idx, _, low_idx, _ = volatility_classifier(train_df[['Close']])
-        
-        high_base_signals = [dataset_preprocess(train_df, list(df.columns[config['execution']['start_col']:]), s, e) for s, e in zip(high_idx[0], high_idx[1])]
-        low_base_signals = [dataset_preprocess(train_df, list(df.columns[config['execution']['start_col']:]), s, e) for s, e in zip(low_idx[0], low_idx[1])]
+        garch_result, predict_vol, high_vol_dataset, low_vol_dataset, high_idx, high_end_idx, low_idx, low_end_idx = volatility_classifier(train_df[['Close']])
+        indicator_cols = list(df.columns[config['execution']['start_col']:])
+        high_base_signals = [dataset_preprocess(train_df, indicator_cols, s, e) for s, e in zip(high_idx, high_end_idx)]
+        low_base_signals = [dataset_preprocess(train_df, indicator_cols, s, e) for s, e in zip(low_idx, low_end_idx)]
         
         high_base_trees = [[TreeNode(i) for i in range(config['indicators']['num_indicators'])]] * len(high_base_signals)
         low_base_trees = [[TreeNode(i) for i in range(config['indicators']['num_indicators'])]] * len(low_base_signals)
 
-        # --- Evolution ---
+        #  Evolution
+        curr_warmstart_percent = config['execution']['warmstart']['current_warmstart_percent']
         if dataset_iteration == 0:
             logging.info("Running initial evolution for high volatility regime...")
             dict_high = evolver.run_initial_evolution(high_vol_dataset, high_base_signals, high_base_trees, is_high=True)
             logging.info("Running initial evolution for low volatility regime...")
             dict_low = evolver.run_initial_evolution(low_vol_dataset, low_base_signals, low_base_trees, is_high=False)
         else:
-            # For advanced runs, you would manage the optimizer state and other params
-            # This is a simplified placeholder; you would loop through depths as in your original code
-            # and pass the state from the previous dict_low/dict_high.
-            logging.info("Running advanced evolution (placeholder)...")
-            # Example: new_dict_high = evolver.run_advanced_evolution(...)
-            pass # Placeholder for your detailed advanced evolution logic
-
-        # --- Testing ---
+            logging.info("Running advanced evolution...")
+            dict_high = continued_evolution_training(train_df,indicator_cols,high_idx,high_end_idx,
+                                                             dict_high,high_vol_dataset,evolver,curr_warmstart_percent,ishigh=True)
+            dict_low = continued_evolution_training(train_df,indicator_cols,low_idx,low_end_idx,
+                                                             dict_low,low_vol_dataset,evolver,curr_warmstart_percent,ishigh=False)
+            curr_warmstart_percent *= config['execution']['warmstart']['warmstart_percent']
+        #  Testing 
         test_df = df.iloc[test_start:test_end]
-        # best_sharpe_results = run_backtest_and_evaluation(...)
-        
-        # --- Save state before the next iteration ---
+        pred_volatility = perform_rolling_garch_forecast(train_df, garch_result, test_df)
+        final_classified_vol = classify_volatility(predict_vol, pred_volatility,window=config['execution']['warmstart']['test_mean_window'])
+        test_base_signals = dataset_preprocess(test_df,indicator_cols,0, 0, istest=True)
+        evaluate_signals(test_df, final_classified_vol, test_base_signals, dict_high, dict_low, dataset_iteration, timeperiod_based_top)
+        #  Save state before the next iteration 
         current_state = {
             'train_start': train_start + sliding_window,
             'dataset_iteration': dataset_iteration + 1,
             'dict_low': dict_low,
             'dict_high': dict_high,
-            # Add any other variables you need to save
+            'timeperiod_based_top': timeperiod_based_top
         }
         save_checkpoint(current_state)
         
-        # --- Slide the window ---
+        #  Slide the window 
         train_start += sliding_window
         train_end += sliding_window
         dataset_iteration += 1
