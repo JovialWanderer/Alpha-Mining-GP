@@ -247,7 +247,7 @@ class GenerationEvolver:
         next_gen_pop=[current_pop[ind] for (_,ind) in sorted_fitness_arr[:self.num_elite]]        
         
         #Crossover: Create the rest of the new generation
-        num_children_needed = pop_size - self.num_elite+1# 1 to always have a pair of children when num_children is odd
+        num_children_needed = pop_size - self.num_elite# 1 to always have a pair of children when num_children is odd
         fitness_scores_only = np.array([f[0] for f in fitness_arr_with_indices])
         parent_trees,children_trees,parent_fit_arr=[],[],[]
         for _ in range(num_children_needed // 2):
