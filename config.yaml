@@ -1,7 +1,6 @@
 basicfeed:
-  SEED: 42 # Random seed for reproducability
-  filepath: r"C:\Users\Md Kaif Faiyaz\Downloads\Alpha-Mining-GP\DatasetsFolder\zscored_indicators_spy.csv"
-# Volatility & Indicator Parameters
+  SEED: 43 # Random seed for reproducability
+  filepath: "DatasetsFolder/zscored_indicators_spy.csv"
 volatility:
   yz_window_length: 30 # Yang-Zhen window length for true volatility
   params:

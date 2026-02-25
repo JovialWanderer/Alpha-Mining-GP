@@ -21,7 +21,7 @@ class PopulationWarmstarter:
         if self.num_individuals <= 0:
             raise ValueError("Number of individuals must be positive.")
         
-        self.initial_warmstart_factor = config['intergration']['ini_warm_factor']
+        self.initial_warmstart_factor = config['integration']['ini_warm_factor']
         self.rng = rng
 
     def _create_initial_population(self, base_trees: List[TreeNode]) -> List[TreeNode]:

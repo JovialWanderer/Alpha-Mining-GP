@@ -1,8 +1,8 @@
 from collections import deque
 import itertools
 from hyperparam import *
-from TreeStruct import *
-from TreeSignalCalc import tree_signal
+from StrategyTree.TreeStruct import *
+from StrategyTree.TreeSignalCalc import tree_signal
 
 def get_height(root: TreeNode) -> int:
     """Gets the height of the tree recursively."""

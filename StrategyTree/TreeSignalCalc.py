@@ -1,5 +1,5 @@
 from hyperparam import *
-from TreeStruct import *
+from StrategyTree.TreeStruct import *
 
 def tree_signal(base_signals: list[np.ndarray], node: TreeNode) -> np.ndarray:
     """
@@ -17,6 +17,7 @@ def tree_signal(base_signals: list[np.ndarray], node: TreeNode) -> np.ndarray:
     try:
         op_func = OPERATOR_DISPATCH[node.val]
     except KeyError:
+        print(f"Error: Operator ID {node.val} not found in dispatch dictionary. The left node is {node.left} and the right node is {node.right}.")
         raise ValueError(f"Invalid or unknown operator ID: {node.val}")
 
     # Check if the operator is binary or unary

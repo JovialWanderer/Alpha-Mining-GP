@@ -1,6 +1,8 @@
 import vectorbt as vbt
 from typing import Literal
 from hyperparam import *
+import numpy as np
+import pandas as pd
 
 # Define a literal type for valid fitness metrics
 FitnessMetric = Literal[
@@ -46,11 +48,28 @@ class VectorBacktest:
     """
     def __init__(self, dataset: pd.DataFrame, terminal_signals: np.ndarray):
         self.df = dataset.copy()
-        
-        #Ensure signal shape matches dataset length
+
+        # Accept lists of signals (common caller behavior) and convert to ndarray
+        if isinstance(terminal_signals, list):
+            terminal_signals = np.asarray(terminal_signals)
+
+        # Ensure we have a NumPy array
+        if not isinstance(terminal_signals, np.ndarray):
+            terminal_signals = np.array(terminal_signals)
+
+        # Normalize shape: expect (n_signals, time_length)
+        if terminal_signals.ndim == 1:
+            # Single signal vector -> make it a single-row 2D array
+            terminal_signals = terminal_signals[np.newaxis, :]
+        elif terminal_signals.ndim == 2:
+            # If the time dimension is in axis 0, transpose
+            if terminal_signals.shape[1] != len(self.df) and terminal_signals.shape[0] == len(self.df):
+                terminal_signals = terminal_signals.T
+
+        # Ensure signal shape matches dataset length after normalization
         if terminal_signals.shape[1] != len(self.df):
             raise ValueError("Signal array length must match the dataset length.")
-            
+
         self.signals = terminal_signals
         self._benchmark_portfolio: vbt.Portfolio | None = None
         
@@ -91,7 +110,7 @@ class VectorBacktest:
             init_cash=config['backtest']['initial_cash'],
             slippage=config['backtest']['slippage'],
             fees=config['backtest']['fees'],
-            freq=config['backtest']['freq']
+            freq=config['backtest']['frequency']
         )
         
     @property

@@ -96,13 +96,13 @@ def perform_rolling_garch_forecast(
     """
     train_returns = dataset['Close'].pct_change().dropna() * 100
     test_returns = dataset_test['Close'].pct_change().dropna() * 100
-
+    vol_params = config['volatility']['params']
     garch_params = {
-        'p': garch_result.model.volatility.p,
-        'q': garch_result.model.volatility.q,
-        'o': garch_result.model.volatility.o,
-        'power': garch_result.model.volatility.power,
-        'dist': garch_result.model.distribution.name,
+        'p': vol_params['p'],
+        'q': vol_params['q'],
+        'o': vol_params.get('o', 0),
+        'power': vol_params.get('power', 2.0),
+        'dist': vol_params.get('dist', 'StudentsT')
     }
 
     step_size = config['execution']['data_window']['forecast_horizon']

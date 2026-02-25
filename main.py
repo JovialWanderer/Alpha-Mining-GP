@@ -147,10 +147,9 @@ def continued_evolution_training(train_df:pd.DataFrame,indicator_cols:list,start
             warmstart_regime= dict_regime[index- 1]["tree_opt"]
         else:
             warmstart_regime= [TreeNode(i) for i in range(config['indicators']['num_indicators'])]
-        optim_state.dataset_iteration+=1
         logging.info(f"Dataset iteration {optim_state.dataset_iteration} for depth {index} in {'high' if ishigh else 'low'} volatility regime.")
         if base_trees:
-            dict_regime[index]= evolver.run_advanced_evolution(regime_vol_dataset[index],base_signals,base_trees,
+            dict_regime[index]= evolver.run_advanced_evolution([regime_vol_dataset[0]],base_signals,base_trees,
                 index,dict_regime[index]["best_fit"],curr_warmstart_percent,
                 warmstart_regime,ishigh=ishigh,optimizer_state=optim_state)
         else:
@@ -177,9 +176,9 @@ def classify_volatility(
     combined = np.concatenate([predict_vol, pred_volatility])
     fixed_len = len(predict_vol)
 
-    classified = np.zeros(len(pred_volatility), dtype=int)
+    classified = np.zeros(len(pred_volatility)+1, dtype=int)
 
-    for i in range(fixed_len, len(combined)):
+    for i in range(fixed_len-1, len(combined)):
         start = max(0, i - window)
         rolling_mean = np.mean(combined[start:i])
 
@@ -197,7 +196,7 @@ def evaluate_signals(
     dataset_iteration: int,
     timeperiod_based_top: dict,
 ):
-
+    global avg_test_res, avg_sharpe_dict
     timeperiod_based_top[dataset_iteration] = []
 
     for depth in range(2, config['integration']['num_depth'] + 1):
@@ -265,6 +264,10 @@ def evaluate_signals(
 
         # Store results
         timeperiod_based_top[dataset_iteration].extend(detail[:10])
+        if depth not in avg_test_res:
+            avg_test_res[depth] = 0
+        if depth not in avg_sharpe_dict:
+            avg_sharpe_dict[depth] = []
         avg_test_res[depth] += sorted_sharpe[0]
         avg_sharpe_dict[depth].append(avg_sharpe)
 
@@ -311,6 +314,7 @@ def main():
     sliding_window = config['execution']['data_window']['sliding_window_days']
     
     #  Main Sliding Window Loop 
+    curr_warmstart_percent = config['execution']['warmstart']['current_warmstart_percent']
     while train_end < len(df):
         test_start = train_end
         test_end = test_start + config['execution']['data_window']['fixed_test_length']
@@ -330,19 +334,24 @@ def main():
         high_base_trees = [[TreeNode(i) for i in range(config['indicators']['num_indicators'])]] * len(high_base_signals)
         low_base_trees = [[TreeNode(i) for i in range(config['indicators']['num_indicators'])]] * len(low_base_signals)
 
-        #  Evolution
-        curr_warmstart_percent = config['execution']['warmstart']['current_warmstart_percent']
+        #  Evolution 
         if dataset_iteration == 0:
             logging.info("Running initial evolution for high volatility regime...")
             dict_high = evolver.run_initial_evolution(high_vol_dataset, high_base_signals, high_base_trees, is_high=True)
             logging.info("Running initial evolution for low volatility regime...")
             dict_low = evolver.run_initial_evolution(low_vol_dataset, low_base_signals, low_base_trees, is_high=False)
+            for dep in range(2, config['integration']['num_depth'] + 1):
+                dict_high[dep]['optimizer_state'].dataset_iteration = dataset_iteration+1
+                dict_low[dep]['optimizer_state'].dataset_iteration = dataset_iteration+1
         else:
             logging.info("Running advanced evolution...")
             dict_high = continued_evolution_training(train_df,indicator_cols,high_idx,high_end_idx,
                                                              dict_high,high_vol_dataset,evolver,curr_warmstart_percent,ishigh=True)
             dict_low = continued_evolution_training(train_df,indicator_cols,low_idx,low_end_idx,
                                                              dict_low,low_vol_dataset,evolver,curr_warmstart_percent,ishigh=False)
+            for dep in range(2, config['integration']['num_depth'] + 1):
+                dict_high[dep]['optimizer_state'].dataset_iteration = dataset_iteration+1
+                dict_low[dep]['optimizer_state'].dataset_iteration = dataset_iteration+1
             curr_warmstart_percent *= config['execution']['warmstart']['warmstart_percent']
         #  Testing 
         test_df = df.iloc[test_start:test_end]
@@ -353,7 +362,7 @@ def main():
         #  Save state before the next iteration 
         current_state = {
             'train_start': train_start + sliding_window,
-            'dataset_iteration': dataset_iteration + 1,
+            'dataset_iteration': dataset_iteration,
             'dict_low': dict_low,
             'dict_high': dict_high,
             'timeperiod_based_top': timeperiod_based_top

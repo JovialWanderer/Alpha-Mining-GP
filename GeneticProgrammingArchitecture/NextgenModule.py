@@ -1,16 +1,18 @@
 from GA_Integration.kwargs_dataclass import OptimizerState
 from hyperparam import *
-from SimilarityScore import *
+from GeneticProgrammingArchitecture.SimilarityScore import *
 from StrategyTree.TreeStruct import TreeNode
 from StrategyTree.TreeSignalCalc import tree_signal
 from BacktestFolder.backtest import VectorBacktest
-from GPUtils import GeneticOperators
+from GeneticProgrammingArchitecture.GPUtils import GeneticOperators
 import numpy as np
 import random
 import numpy as np
 import pandas as pd
 from typing import List, Tuple , Optional
 import copy
+import warnings
+import logging
 
 
 
@@ -159,21 +161,68 @@ class GenerationEvolver:
         self, pnl_array: np.ndarray, fitness_array: np.ndarray, curr_gen: int, tot_gen: int
     ) -> np.ndarray:
         """Applies a diversity penalty to fitness scores based on PnL similarity."""
-        if self.is_simulated_annealing:
-            multiplicative_factor = np.exp(-curr_gen / tot_gen)
-
-            similarity_matrix = calculate_similarity_matrix_np(pnl_array)
-            _, counts = analyze_similarity(similarity_matrix)
-            penalized_fitness = np.array([
-                (fit / ((1.0 + counts[index]) * multiplicative_factor)
-                 if ((1 + counts[index]) * multiplicative_factor) > 1
-                 else fit,
-                 index)
-                 for _, (fit, index) in enumerate(fitness_array)])
-
+        # Normalize fitness_array into a list of (fit, index) tuples
+        if isinstance(fitness_array, np.ndarray):
+            fitness_with_indices = [(float(f), int(i)) for i, f in enumerate(fitness_array)]
         else:
-            penalized_fitness=fitness_array
-        return penalized_fitness
+            try:
+                fitness_with_indices = list(fitness_array)
+            except Exception:
+                # Fallback: try to coerce to ndarray then enumerate
+                try:
+                    fa = np.asarray(fitness_array)
+                    fitness_with_indices = [(float(f), int(i)) for i, f in enumerate(fa)]
+                except Exception:
+                    warnings.warn("Could not interpret fitness_array; returning it unchanged.")
+                    return fitness_array
+
+        if not self.is_simulated_annealing:
+            return fitness_with_indices
+
+        # Simulated annealing: compute multiplicative factor and similarity counts
+        multiplicative_factor = np.exp(-curr_gen / tot_gen) if tot_gen > 0 else 1.0
+
+        # Convert pnl_array to a 2D NumPy array: rows = strategies, cols = time
+        if not isinstance(pnl_array, np.ndarray):
+            try:
+                pnl_np = np.asarray(pnl_array, dtype=float)
+            except Exception:
+                warnings.warn("Could not convert pnl_array to NumPy array; skipping similarity suppression.")
+                return fitness_with_indices
+        else:
+            pnl_np = pnl_array.astype(float, copy=False)
+
+        # Ensure 2D shape
+        if pnl_np.ndim == 1:
+            pnl_np = pnl_np[np.newaxis, :]
+        elif pnl_np.ndim > 2:
+            warnings.warn(f"pnl_array has {pnl_np.ndim} dims; expected 1 or 2. Skipping suppression.")
+            return fitness_with_indices
+
+        # Now compute similarity and counts
+        try:
+            similarity_matrix = calculate_similarity_matrix_np(pnl_np)
+            _, counts = analyze_similarity(similarity_matrix)
+        except Exception as e:
+            warnings.warn(f"Similarity computation failed: {e}. Skipping suppression.")
+            return fitness_with_indices
+
+        # If counts length mismatches, bail out
+        if len(counts) != len(fitness_with_indices):
+            warnings.warn("Counts length does not match fitness entries; skipping suppression.")
+            return fitness_with_indices
+
+        # Apply penalty per item, preserving original indices
+        penalized = []
+        for (fit, index) in fitness_with_indices:
+            denom = (1.0 + counts[int(index)]) * multiplicative_factor
+            if denom > 1.0:
+                new_fit = fit / denom
+            else:
+                new_fit = fit
+            penalized.append((new_fit, int(index)))
+
+        return penalized
 
     def evolve(
         self,
@@ -195,13 +244,11 @@ class GenerationEvolver:
 
         org_fitness_arr = self._calculate_fitness(current_pop, dataset, base_signals)
         sorted_fitness_arr=sorted(fitness_arr_with_indices, key=lambda x: x[0], reverse=True)
-        next_gen_pop=[current_pop[ind] for _,(_,ind) in sorted_fitness_arr[:self.num_elite]]
-        
+        next_gen_pop=[current_pop[ind] for (_,ind) in sorted_fitness_arr[:self.num_elite]]        
         
         #Crossover: Create the rest of the new generation
         num_children_needed = pop_size - self.num_elite+1# 1 to always have a pair of children when num_children is odd
         fitness_scores_only = np.array([f[0] for f in fitness_arr_with_indices])
-        
         parent_trees,children_trees,parent_fit_arr=[],[],[]
         for _ in range(num_children_needed // 2):
             id1 = self.ga_ops.selection(fitness_scores_only, k=3)
@@ -223,11 +270,13 @@ class GenerationEvolver:
         # Level 2 selection: Choose the best among parents and children
         if children_trees:
             children_fit_arr = self._calculate_fitness(children_trees, dataset, base_signals)
-            for i in range(len(children_trees),2):
-                if (max(children_fit_arr[i],children_fit_arr[i+1])> min(parent_fit_arr[i],parent_fit_arr[i+1])):
-                    next_gen_pop.extend([children_trees[i], children_trees[i+1]])
+            for i in range(0,len(children_trees),2):
+                child_pair = children_fit_arr[i:i+2]
+                parent_pair = parent_fit_arr[i:i+2]
+                if (max(child_pair)> min(parent_pair)):
+                    next_gen_pop.extend(children_trees[i:i+2])
                 else:
-                    next_gen_pop.extend([parent_trees[i], parent_trees[i+1]])
+                    next_gen_pop.extend(parent_trees[i:i+2])
         #Mutation
         num_mutations = int(len(next_gen_pop) * optimizer_state.curr_mut_rate)
         if num_mutations > 0:
@@ -241,9 +290,7 @@ class GenerationEvolver:
         new_pnl_array=[]
         for signal_name in signal_names:
             new_pnl_array.append(metrics.value()[signal_name].values)
-        new_penalized_fitness = self._suppress_fitness_by_similarity(new_pnl_array, new_raw_fitness, curr_gen, tot_gen)
-        
-        new_fitness_with_indices = list(zip(new_penalized_fitness, range(len(next_gen_pop))))
+        new_fitness_with_indices = self._suppress_fitness_by_similarity(new_pnl_array, new_raw_fitness, curr_gen, tot_gen)
         
         #Update adaptive rates and return
         if not self.is_fixed_rate:
@@ -254,6 +301,6 @@ class GenerationEvolver:
                 np.array([f[0] for f in new_fitness_with_indices])
             )
 
-        avg_new_fitness = np.mean(sorted(new_penalized_fitness, reverse=True)[:10])
+        avg_new_fitness = np.mean(sorted([f[0] for f in new_fitness_with_indices], reverse=True)[:10])
 
         return next_gen_pop, avg_new_fitness, new_fitness_with_indices, new_pnl_array, optimizer_state

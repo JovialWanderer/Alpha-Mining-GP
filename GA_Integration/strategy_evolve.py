@@ -1,4 +1,4 @@
-from kwargs_dataclass import *
+from GA_Integration.kwargs_dataclass import *
 from StrategyTree.TreeStruct import TreeNode
 from StrategyTree.TreeSignalCalc import tree_signal
 from BacktestFolder.backtest import VectorBacktest
@@ -6,6 +6,7 @@ from GeneticProgrammingArchitecture.SimilarityScore import *
 from WarmStart import PopulationWarmstarter
 from GeneticProgrammingArchitecture.NextgenModule import *
 from hyperparam import *
+import logging
 class StrategyEvolver:
     """
     Manages the evolutionary optimization process for trading strategies.
@@ -54,11 +55,11 @@ class StrategyEvolver:
         optimizer_state: OptimizerState, depth: int, is_high: bool
     ) -> Tuple[List[TreeNode], float, OptimizerState]:
         """A private helper to run the main generational evolution loop."""
-        current_pop = initial_pop
+        current_pop = initial_pop.copy()
         
         # Initial fitness evaluation for the starting population
         fitness_arr= self._evaluate_population(current_pop, dataset_chunks[0], signal_chunks[0])
-
+        print(f"Total dataset chunks: {len(dataset_chunks)}. Starting evolution loop with initial population of size {len(current_pop)}. Length of fitness array: {len(fitness_arr)}. ")
         best_fitness = -np.inf
         best_strategy_pop = current_pop.copy()
         #Get top 10% for early stopping comparison
@@ -86,11 +87,11 @@ class StrategyEvolver:
                     fitness_arr_with_indices=fitness_arr,
                     dataset=data_chunk,
                     base_signals=signal_chunk,
+                    optimizer_state=optimizer_state,
                     curr_gen=gen+1,
                     tot_gen=gens_for_chunk+1,
-                    **optimizer_state.__dict__
                 )
-
+                logging.info(f"For chunk {j+1}/{len(dataset_chunks)}, generation {gen+1}/{gens_for_chunk} and length of current population {len(current_pop)} .")
                 if next_avg_fit > best_fitness:
                     best_fitness = next_avg_fit
                     best_strategy_pop = current_pop.copy()
@@ -116,18 +117,18 @@ class StrategyEvolver:
 
         for d in range(2, self.num_depth + 1):
             warm_pop = self.warmstarter.begin(strategy_population)
-
+            print(f"Running evolution for depth {d} with population size {len(warm_pop)}...")
             # Run the main evolution loop
             best_pop, best_fit, final_state = self._run_evolution_loop(
                 warm_pop.copy(), dataset, base_signals, optimizer_state, d, is_high
             )
-            
+            print(f"Completed evolution for depth {d} and no of individuals {len(best_pop)}")
             depth_results[d] = {
                 'best_fit': best_fit,
                 'tree_opt': best_pop,
                 'optimizer_state': final_state
             }
-            strategy_population = best_pop  # The best from this depth becomes the base for the next
+            strategy_population = best_pop.copy()  # The best from this depth becomes the base for the next
             print(f"##*****************DEPTH {d} has BEST_FITNESS of {best_fit}***********************##")
         return depth_results
     
@@ -152,3 +153,4 @@ class StrategyEvolver:
         }
         print(f"##*****************ADVANCED DEPTH {depth} has BEST_FITNESS of {best_fit}***********************##")
         return depth_results
+    
