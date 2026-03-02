@@ -149,7 +149,7 @@ def continued_evolution_training(train_df:pd.DataFrame,indicator_cols:list,start
             warmstart_regime= [TreeNode(i) for i in range(config['indicators']['num_indicators'])]
         logging.info(f"Dataset iteration {optim_state.dataset_iteration} for depth {index} in {'high' if ishigh else 'low'} volatility regime.")
         if base_trees:
-            dict_regime[index]= evolver.run_advanced_evolution([regime_vol_dataset[0]],base_signals,base_trees,
+            dict_regime[index]= evolver.run_advanced_evolution(regime_vol_dataset,base_signals,base_trees,
                 index,dict_regime[index]["best_fit"],curr_warmstart_percent,
                 warmstart_regime,ishigh=ishigh,optimizer_state=optim_state)
         else:
