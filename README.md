@@ -5,10 +5,6 @@
 This repository contains the official implementation of:
 
 > **MAGA: Multihead Adaptive Genetic Algorithm in Non-Stationary Environments**
-> Submitted to *IEEE Transactions on Evolutionary Computation*
-> Manuscript ID: TEVC-00903-2025
->
-> 📄 See paper: 
 
 ---
 
