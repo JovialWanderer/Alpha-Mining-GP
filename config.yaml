@@ -1,6 +1,6 @@
 basicfeed:
   SEED: 43 # Random seed for reproducability
-  filepath: "DatasetsFolder/zscored_indicators_spy.csv"
+  filepath: "DatasetsFolder/zscored_alpha101_indicators_csi300.csv"
 volatility:
   yz_window_length: 30 # Yang-Zhen window length for true volatility
   params:
@@ -10,7 +10,7 @@ volatility:
     power: 2
     dist: "StudentsT"
 indicators:
-  num_indicators: 30 # Number of Technical Indicators/Strategies/Base Alphas
+  num_indicators: 80 # Number of Technical Indicators/Strategies/Base Alphas
   num_binary_operators: 5 # When changing this, update Tree Signal function
   operators:
     id_to_name_map:
@@ -58,7 +58,7 @@ backtest:
   slippage: 0.001
   fees: 0.001
   frequency: "1D" # e.g., '1D', '1H', '1M'
-  signal_threshold: 1.0
+  signal_threshold: 0.01
 
 # Integration & Optimization Parameters
 integration:
@@ -109,7 +109,43 @@ ablation:
   exp_delta_p: {} # Will be populated by code
   price_delta_p: {} # Will be populated by code
   is_consecutive_warmstart: true # False: Adaptive rates will be used
+  run_lgb_xgb_search: false # Run ablation/randomized search vs evolution pipeline
+  run_gplearn_search: false # Run GPlearn ablation test
+  gplearn:
+    population_size: 500
+    generations: 30
+    init_depth: [2, 6]
+    tournament_size: 20
+    p_crossover: 0.3
+    p_subtree_mutation: 0.1
+    p_hoist_mutation: 0.01
+    p_point_mutation: 0.1
+    p_point_replace: 0.6
+    max_samples: 0.9
+    parsimony_coefficient: 0.0
+    n_jobs: 1
+  mlp:
+    hidden_dim: 64
+    epochs: 30
+    n_strategies: 1
+    lr: 0.001
+    horizon: 5
   fixed_rates:
     is_fixed_rate: true # False: Adaptive rates will be used
     fixed_crossover_rate: 0.00000001 # 1e-8
     fixed_mutation_rate: 0.00000001 # 1e-8
+
+oos_params:
+  oos_shifts: [10, 50, 100, 150, 200] # Different OOS depths to test
+  oos_metrics: ["sharpe", "calmar", "sortino"] # Different OOS metrics to evaluate
+
+lgb_xgb_search:
+  num_random_samples: 20
+  num_focused_samples: 10
+  random_search_trials: 40
+  focused_grid_top_k: 5
+  prune_percentile: 10
+  focused_radius_map:
+    n_estimators: 50
+    max_depth: 3
+    learning_rate: 0.01

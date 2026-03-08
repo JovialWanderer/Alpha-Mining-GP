@@ -122,8 +122,8 @@ class VectorBacktest:
             self._benchmark_portfolio = BuyAndHoldBacktest(self.df).get_portfolio()
         return self._benchmark_portfolio.returns()
 
-    def get_portfolio(self) -> vbt.Portfolio:
-        """Returns the generated portfolio object for all strategies."""
+    def port_ret(self) -> vbt.Portfolio:
+        """Returns the portfolio object."""
         return self.portfolio
 
     def fitness(self, metric: FitnessMetric = "sharpe") -> pd.Series | float:
@@ -138,7 +138,7 @@ class VectorBacktest:
             "calmar_ratio": self.portfolio.calmar_ratio,
             "sortino_ratio": self.portfolio.sortino_ratio,
             "omega_ratio": self.portfolio.omega_ratio,
-            "max_drawdown": lambda: -self.portfolio.max_drawdown, #Negative for maximization
+            "max_drawdown": lambda: -self.portfolio.max_drawdown(), #Negative for maximization
             "information_ratio": lambda: self.portfolio.information_ratio(self.benchmark_returns)
         }
         
