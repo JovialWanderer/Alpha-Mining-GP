@@ -130,6 +130,12 @@ ablation:
     n_strategies: 1
     lr: 0.001
     horizon: 5
+  pso:
+    pso_particles: 10000
+    pso_iterations: 30
+    w: 0.5
+    c1: 1.5
+    c2: 1.5
   fixed_rates:
     is_fixed_rate: true # False: Adaptive rates will be used
     fixed_crossover_rate: 0.00000001 # 1e-8

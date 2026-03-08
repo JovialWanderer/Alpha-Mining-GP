@@ -62,3 +62,6 @@ urllib3==2.5.0
 vectorbt==0.28.0
 wcwidth==0.2.13
 widgetsnbextension==4.0.14
+lightgbm==4.6.0
+xgboost==3.2.0
+torch==2.10.0
