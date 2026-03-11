@@ -112,10 +112,10 @@ ablation:
   run_lgb_xgb_search: false # Run ablation/randomized search vs evolution pipeline
   run_gplearn_search: false # Run GPlearn ablation test
   gplearn:
-    population_size: 500
+    population_size: 1000
     generations: 30
     init_depth: [2, 6]
-    tournament_size: 20
+    tournament_size: 600
     p_crossover: 0.3
     p_subtree_mutation: 0.1
     p_hoist_mutation: 0.01
