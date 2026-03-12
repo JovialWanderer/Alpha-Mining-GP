@@ -29,14 +29,51 @@ The system is evaluated under a rigorous walk-forward protocol across equity ind
 Alpha-Mining-GP/
 │
 ├── VolatilityModelling/      # GARCH-based regime detection
+│   ├── VolatilityClassifier.py
+│   ├── YangZhenVol.py
+│
 ├── StrategyTree/             # GP tree representation and operators
-├── Backtest/                 # Vectorized portfolio evaluation
-├── Integration/              # Walk-forward orchestration
+│   ├── TreeSignalCalc.py
+│   ├── TreeStruct.py
+│   ├── TreeUtils.py
+│
+├── BacktestFolder/           # Vectorized portfolio evaluation
+│   ├── backtest.py
+│
+├── GA_Integration/           # Walk-forward orchestration
+│   ├── kwargs_dataclass.py
+│   ├── strategy_evolve.py
+│
+├── GeneticProgrammingArchitecture/  # GP utilities and modules
+│   ├── GPUtils.py
+│   ├── NextgenModule.py
+│   ├── SimilarityScore.py
+│
+├── AblationCodes/            # Ablation study codes
+│   ├── GPLearn_test.py
+│   ├── LGB_XGB_test.py
+│   ├── MLP_test.py
+│   ├── PSO_test.py
+│
+├── Alpha101/                 # Alpha formula utilities
+│   ├── formulaicalpha.py
+│   ├── packages.py
+│   ├── utils.py
+│
+├── DatasetsFolder/           # Dataset files
+│   ├── TF1_indicators_spx.csv
+│   ├── zscored_alpha101_indicators_csi300.csv
+│   ├── zscored_alpha101_indicators_eur_aud.csv
+│   ├── zscored_alpha101_indicators_eur_chf.csv
+│   ├── zscored_alpha101_indicators_eur_usd.csv
+│   ├── zscored_alpha101_indicators_usd_jpy.csv
+│   ├── zscored_indicators_spy.csv
+│
 ├── hyperparam.py             # Experiment configuration
 ├── main.py                   # Entry point
-├── requirements.txt
-└── README.md
-|__ AblationCodes/            # Ablation study codes
+├── requirements.txt          # Dependencies
+├── README.md                 # Project documentation
+└── config.yaml               # Configuration file
 ```
 
 ---
