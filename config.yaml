@@ -1,6 +1,6 @@
 basicfeed:
   SEED: 43 # Random seed for reproducability
-  filepath: "DatasetsFolder/zscored_alpha101_indicators_csi300.csv"
+  filepath: "DatasetsFolder/zscored_indicators_spy.csv"
 volatility:
   yz_window_length: 30 # Yang-Zhen window length for true volatility
   params:
@@ -58,7 +58,7 @@ backtest:
   slippage: 0.001
   fees: 0.001
   frequency: "1D" # e.g., '1D', '1H', '1M'
-  signal_threshold: 0.01
+  signal_threshold: 1.0
 
 # Integration & Optimization Parameters
 integration:
@@ -102,6 +102,7 @@ execution:
     dict_low_initial: {} # Initial empty dict
     dict_high_initial: {} # Initial empty dict
   start_col: 6
+  stopping_dataset_iteration: 24
 
 # Ablation & Feature Flags
 ablation:
