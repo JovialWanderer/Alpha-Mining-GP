@@ -1,5 +1,5 @@
 basicfeed:
-  SEED: 43 # Random seed for reproducability
+  SEED: 45 # Random seed for reproducability
   filepath: "DatasetsFolder/zscored_indicators_spy.csv"
 volatility:
   yz_window_length: 30 # Yang-Zhen window length for true volatility
